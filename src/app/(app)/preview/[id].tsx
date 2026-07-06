@@ -1,0 +1,136 @@
+import { useCallback, useEffect, useState } from 'react';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Stack, useLocalSearchParams } from 'expo-router';
+import { WebView } from 'react-native-webview';
+import { Ionicons } from '@expo/vector-icons';
+import { Spinner } from '@/components/Spinner';
+import { supabase } from '@/lib/supabase';
+import { buildPreview, buildMobilePreviewHtml, type FileMap } from '@/lib/api';
+import { brand, radius, space } from '@/lib/theme';
+
+type State =
+  | { phase: 'building' }
+  | { phase: 'ready'; url: string }
+  | { phase: 'ready-html'; html: string }
+  | { phase: 'error'; message: string };
+
+export default function PreviewScreen() {
+  const { id } = useLocalSearchParams<{ id: string }>();
+  const [state, setState] = useState<State>({ phase: 'building' });
+
+  const build = useCallback(async () => {
+    if (!id) return;
+    setState({ phase: 'building' });
+    try {
+      const { data } = await supabase
+        .from('projects')
+        .select('files,project_type')
+        .eq('id', id)
+        .maybeSingle();
+      const files = (data?.files as FileMap) ?? {};
+      if (Object.keys(files).length === 0) {
+        setState({ phase: 'error', message: 'Nothing to preview yet — build something first.' });
+        return;
+      }
+      // Mobile apps render in-app via react-native-web; web apps via the hosted
+      // preview builder. Both display in this same WebView — one runtime, no Expo Go.
+      if (data?.project_type === 'mobile') {
+        const html = await buildMobilePreviewHtml(id, files);
+        setState({ phase: 'ready-html', html });
+      } else {
+        const url = await buildPreview(id, files);
+        setState({ phase: 'ready', url });
+      }
+    } catch (e) {
+      setState({ phase: 'error', message: (e as Error).message });
+    }
+  }, [id]);
+
+  useEffect(() => {
+    build();
+  }, [build]);
+
+  return (
+    <View style={styles.flex}>
+      <Stack.Screen
+        options={{
+          title: 'Preview',
+          headerRight: () => (
+            <Pressable onPress={build} hitSlop={8} style={styles.refresh}>
+              <Ionicons name="refresh" size={18} color={brand.accent} />
+            </Pressable>
+          ),
+        }}
+      />
+
+      {state.phase === 'building' ? (
+        <View style={styles.center}>
+          <Spinner />
+          <Text style={styles.muted}>Building your preview…</Text>
+        </View>
+      ) : state.phase === 'error' ? (
+        <View style={styles.center}>
+          <Ionicons name="cube-outline" size={36} color={brand.textMuted} />
+          <Text style={styles.errorTitle}>Preview isn&apos;t ready yet</Text>
+          <Text style={styles.errorText}>{friendlyMessage(state.message)}</Text>
+          <Pressable onPress={build} style={styles.retry}>
+            <Text style={styles.retryText}>Try again</Text>
+          </Pressable>
+        </View>
+      ) : (
+        <WebView
+          source={state.phase === 'ready-html' ? { html: state.html } : { uri: state.url }}
+          style={styles.flex}
+          startInLoadingState
+          renderLoading={() => (
+            <View style={[styles.center, styles.webLoading]}>
+              <Spinner />
+            </View>
+          )}
+          originWhitelist={['*']}
+          javaScriptEnabled
+          domStorageEnabled
+          onMessage={() => {
+            // The preview posts {type:'preview-error'} on an in-app render
+            // failure. Its own calm fallback card is already showing inside the
+            // WebView, so we intentionally don't stack another error over it.
+          }}
+        />
+      )}
+    </View>
+  );
+}
+
+// Turn a raw build/network message into one calm sentence. Nothing scary, no
+// stack traces — those never belong in front of the user.
+function friendlyMessage(raw: string): string {
+  const m = (raw || '').toLowerCase();
+  if (m.includes('nothing to preview') || m.includes('build something')) {
+    return 'Build something first, then preview it here.';
+  }
+  if (m.includes('network') || m.includes('failed to fetch') || m.includes('timeout')) {
+    return 'Couldn’t reach the preview service. Check your connection and try again.';
+  }
+  if (m.includes('no app') || m.includes('no-entry')) {
+    return 'This project doesn’t have an app entry to preview yet.';
+  }
+  return 'We couldn’t build a preview for this version. Try again, or make another change first.';
+}
+
+const styles = StyleSheet.create({
+  flex: { flex: 1, backgroundColor: brand.bg },
+  center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: space.xl, gap: space.md },
+  webLoading: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: brand.bg },
+  muted: { color: brand.textMuted, fontSize: 14 },
+  errorTitle: { color: brand.text, fontSize: 17, fontWeight: '700' },
+  errorText: { color: brand.textMuted, fontSize: 14, textAlign: 'center', lineHeight: 20, maxWidth: 300 },
+  retry: {
+    backgroundColor: brand.accent,
+    paddingHorizontal: space.xl,
+    paddingVertical: space.md,
+    borderRadius: radius.md,
+    marginTop: space.sm,
+  },
+  retryText: { color: brand.onAccent, fontSize: 15, fontWeight: '700' },
+  refresh: { padding: 4 },
+});
