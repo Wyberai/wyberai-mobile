@@ -55,9 +55,6 @@ function RootNavigator() {
         contentStyle: { backgroundColor: brand.bg },
       }}
     >
-      {/* OAuth deep-link landing — must be reachable in ANY session state, since
-          the code arrives while still signed out. Not guarded on purpose. */}
-      <Stack.Screen name="auth-callback" />
       <Stack.Protected guard={!!session}>
         <Stack.Screen name="(app)" />
       </Stack.Protected>
