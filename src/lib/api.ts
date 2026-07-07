@@ -18,6 +18,24 @@ async function accessToken(): Promise<string | null> {
   return data.session?.access_token ?? null;
 }
 
+/**
+ * Fire first-run onboarding (welcome email + signup tracking). The server guards
+ * it with an atomic once-per-user flip, so calling it on every fresh session is
+ * safe and fires at most once. Fully fire-and-forget — never blocks the app.
+ */
+export async function triggerOnboarding(): Promise<void> {
+  try {
+    const token = await accessToken();
+    if (!token) return;
+    await fetch(`${API_BASE}/api/onboarding`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}` },
+    });
+  } catch {
+    /* onboarding is best-effort — a failure must never affect sign-in */
+  }
+}
+
 // Serialize a file map into the <file>…</file> manifest /api/generate expects
 // as `fileContext` for follow-up edits. Empty string on a brand-new project.
 export function toFileContext(files: FileMap): string {

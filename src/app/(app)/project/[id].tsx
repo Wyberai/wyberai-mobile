@@ -49,7 +49,7 @@ export default function ProjectDetail() {
     setPublishing(false);
     if (result.ok) {
       await load();
-      Alert.alert('Published 🎉', `Your app is live at\n${result.publishedUrl}`);
+      Alert.alert('Published 🎉', `🔒 Security-checked, then published live.\n\n${result.publishedUrl}`);
     } else if (result.blocked) {
       // Critical RLS leak — same "publish anyway" escape hatch as the web editor.
       Alert.alert('Security check', result.message, [

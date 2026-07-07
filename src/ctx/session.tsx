@@ -6,6 +6,7 @@ import * as Linking from 'expo-linking';
 import * as AppleAuthentication from 'expo-apple-authentication';
 import { supabase } from '@/lib/supabase';
 import { registerForPushNotifications } from '@/lib/push';
+import { triggerOnboarding } from '@/lib/api';
 
 export type OAuthProvider = 'google' | 'github';
 
@@ -106,6 +107,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     if (uid && registeredFor.current !== uid) {
       registeredFor.current = uid;
       registerForPushNotifications(uid);
+      triggerOnboarding(); // welcome email + signup tracking (server-guarded, once per user)
     }
     if (!uid) registeredFor.current = null;
   }, [session?.user?.id]);
