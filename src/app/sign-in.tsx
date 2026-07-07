@@ -102,7 +102,7 @@ export default function SignIn() {
         <View style={styles.container}>
           <View style={styles.brandRow}>
             <Image source={require('../../assets/images/icon.png')} style={styles.logoImg} />
-            <Text style={styles.wordmark}>WyberAi</Text>
+            <Text style={styles.wordmark}>Wyber<Text style={{ color: brand.accent }}>Ai</Text></Text>
           </View>
 
           {step === 'email' ? (
