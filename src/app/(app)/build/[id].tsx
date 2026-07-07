@@ -19,6 +19,7 @@ import { supabase } from '@/lib/supabase';
 import {
   applyGeneration,
   buildPreview,
+  fetchCredits,
   saveFiles,
   streamGenerate,
   type FileMap,
@@ -43,9 +44,16 @@ export default function BuildScreen() {
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
   const [loaded, setLoaded] = useState(false);
+  const [credits, setCredits] = useState<number | null>(null);
   const handleRef = useRef<{ abort: () => void } | null>(null);
   const firedInitial = useRef(false);
   const listRef = useRef<FlatList<Msg>>(null);
+
+  const refreshCredits = useCallback(() => {
+    fetchCredits()
+      .then(setCredits)
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     if (!id) return;
@@ -62,7 +70,8 @@ export default function BuildScreen() {
         }
         setLoaded(true);
       });
-  }, [id]);
+    refreshCredits();
+  }, [id, refreshCredits]);
 
   const run = useCallback(
     (promptText: string) => {
@@ -123,6 +132,7 @@ export default function BuildScreen() {
               );
             } finally {
               setBusy(false);
+              refreshCredits();
             }
           },
           onError: (msg) => {
@@ -148,11 +158,12 @@ export default function BuildScreen() {
               );
             }
             setBusy(false);
+            refreshCredits();
           },
         },
       );
     },
-    [id, user?.id, busy, type, files],
+    [id, user?.id, busy, type, files, refreshCredits],
   );
 
   // Auto-fire the initial prompt passed from the "New app" screen, once.
@@ -174,13 +185,22 @@ export default function BuildScreen() {
       <Stack.Screen
         options={{
           title: name || 'Builder',
-          headerRight: () =>
-            hasFiles ? (
-              <Pressable onPress={() => router.push(`/preview/${id}`)} hitSlop={8} style={styles.previewBtn}>
-                <Ionicons name="play" size={14} color={brand.onAccent} />
-                <Text style={styles.previewBtnText}>Preview</Text>
-              </Pressable>
-            ) : null,
+          headerRight: () => (
+            <View style={styles.headerRow}>
+              {credits !== null ? (
+                <Pressable onPress={() => router.push('/account')} hitSlop={8} style={styles.creditsChip}>
+                  <Ionicons name="flash" size={12} color={brand.accent} />
+                  <Text style={styles.creditsText}>{credits.toLocaleString()}</Text>
+                </Pressable>
+              ) : null}
+              {hasFiles ? (
+                <Pressable onPress={() => router.push(`/preview/${id}`)} hitSlop={8} style={styles.previewBtn}>
+                  <Ionicons name="play" size={14} color={brand.onAccent} />
+                  <Text style={styles.previewBtnText}>Preview</Text>
+                </Pressable>
+              ) : null}
+            </View>
+          ),
         }}
       />
 
@@ -319,6 +339,19 @@ const styles = StyleSheet.create({
   },
   sendDisabled: { opacity: 0.4 },
   sendPressed: { backgroundColor: brand.accentDim },
+  headerRow: { flexDirection: 'row', alignItems: 'center', gap: space.sm },
+  creditsChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    backgroundColor: brand.surfaceAlt,
+    borderWidth: 1,
+    borderColor: brand.border,
+    paddingHorizontal: space.sm + 2,
+    paddingVertical: 5,
+    borderRadius: radius.pill,
+  },
+  creditsText: { color: brand.text, fontSize: 13, fontWeight: '700' },
   previewBtn: {
     flexDirection: 'row',
     alignItems: 'center',

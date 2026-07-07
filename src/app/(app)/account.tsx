@@ -129,7 +129,24 @@ export default function AccountScreen() {
           label="Help & support"
           onPress={() => Linking.openURL('https://wyberai.com/contact')}
         />
+        <View style={styles.divider} />
+        {/* In-app reporting path for objectionable content (App Store 1.2 /
+            Play UGC). Published apps also carry a Report control on the web. */}
+        <LinkRow
+          icon="flag-outline"
+          label="Report content"
+          onPress={() =>
+            Linking.openURL(
+              'mailto:hello@wyberai.com?subject=Report%20content&body=Please%20describe%20the%20app%20or%20content%20you%27re%20reporting%20(a%20link%20helps):%0A%0A',
+            )
+          }
+        />
       </View>
+
+      <Text style={styles.disclosure}>
+        Apps are generated with AI and published by their creators. WyberAi reviews reported content
+        and acts within 24 hours.
+      </Text>
 
       <Pressable
         onPress={signOut}
@@ -246,5 +263,12 @@ const styles = StyleSheet.create({
   signOutText: { color: brand.danger, fontSize: 15, fontWeight: '600' },
   deleteAccount: { alignItems: 'center', paddingVertical: space.sm },
   deleteAccountText: { color: brand.danger, fontSize: 13, fontWeight: '500' },
+  disclosure: {
+    color: brand.textFaint,
+    fontSize: 12,
+    lineHeight: 17,
+    textAlign: 'center',
+    marginTop: -space.sm,
+  },
   version: { color: brand.textFaint, fontSize: 12, textAlign: 'center', marginTop: space.sm },
 });

@@ -46,30 +46,59 @@ export function toFileContext(files: FileMap): string {
     .join('\n\n');
 }
 
+/**
+ * Reject a promise if it hasn't settled in `ms`. RN's fetch (which supabase-js
+ * uses) can hang indefinitely on a stalled connection with no error — without
+ * this, "Start building" would spin forever. Surfaces a clear, retryable error.
+ */
+function withTimeout<T>(p: PromiseLike<T>, ms: number, label: string): Promise<T> {
+  // Accept a PromiseLike so supabase-js query builders (thenables, not real
+  // Promises) can be passed straight in.
+  return Promise.race([
+    Promise.resolve(p),
+    new Promise<T>((_, reject) =>
+      setTimeout(() => reject(new Error(`${label} timed out — check your connection and try again.`)), ms),
+    ),
+  ]);
+}
+
 /** Create a new project via RLS insert (mirrors the web app). Returns its id. */
 export async function createProject(opts: {
   name: string;
   prompt: string;
   type: ProjectType;
 }): Promise<string> {
-  const { data: userData } = await supabase.auth.getUser();
+  const { data: userData } = await withTimeout(supabase.auth.getUser(), 15_000, 'Sign-in check');
   const userId = userData.user?.id;
   if (!userId) throw new Error('Not signed in');
 
-  const { data, error } = await supabase
-    .from('projects')
-    .insert({
-      name: opts.name,
-      framework: 'react-vite',
-      user_id: userId,
-      initial_prompt: opts.prompt,
-      project_type: opts.type,
-    })
-    .select('id')
-    .single();
+  const { data, error } = await withTimeout(
+    supabase
+      .from('projects')
+      .insert({
+        name: opts.name,
+        framework: 'react-vite',
+        user_id: userId,
+        initial_prompt: opts.prompt,
+        project_type: opts.type,
+      })
+      .select('id')
+      .single(),
+    15_000,
+    'Creating the project',
+  );
 
   if (error) throw new Error(error.message);
   return data.id as string;
+}
+
+/** Read the signed-in user's current credit balance (0 if unknown). */
+export async function fetchCredits(): Promise<number> {
+  const { data: userData } = await supabase.auth.getUser();
+  const userId = userData.user?.id;
+  if (!userId) return 0;
+  const { data } = await supabase.from('profiles').select('credits').eq('id', userId).maybeSingle();
+  return Number((data as { credits?: number } | null)?.credits ?? 0);
 }
 
 /** Save the full file map back to the project (Bearer-authenticated PATCH). */
