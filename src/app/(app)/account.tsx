@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -10,7 +10,7 @@ import {
   View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
 import { useSession } from '@/ctx/session';
 import { supabase } from '@/lib/supabase';
 import { deleteAccount } from '@/lib/api';
@@ -53,7 +53,7 @@ export default function AccountScreen() {
     );
   }
 
-  useEffect(() => {
+  const loadProfile = useCallback(() => {
     if (!user) return;
     supabase
       .from('profiles')
@@ -65,6 +65,10 @@ export default function AccountScreen() {
         setLoading(false);
       });
   }, [user]);
+
+  // Refetch every time the Account tab regains focus, so credits topped up on
+  // the web show up the moment the user comes back to the app.
+  useFocusEffect(loadProfile);
 
   const displayName = profile?.full_name || user?.email?.split('@')[0] || 'You';
   const initial = displayName.charAt(0).toUpperCase();
@@ -97,6 +101,15 @@ export default function AccountScreen() {
           icon="add-circle-outline"
           label="Build a new app"
           onPress={() => router.push('/new')}
+        />
+        <View style={styles.divider} />
+        {/* Credits are bought on the web (Dodo) and shared across web + mobile —
+            no in-app purchase, so no Play/App-Store cut. Opens the browser; on
+            return, useFocusEffect above refreshes the balance. */}
+        <LinkRow
+          icon="flash-outline"
+          label="Top up credits"
+          onPress={() => Linking.openURL('https://wyberai.com/pricing')}
         />
         <View style={styles.divider} />
         {/* In-app paywall (RevenueCat) — shown only when IAP is live, so it's

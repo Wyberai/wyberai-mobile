@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   FlatList,
   KeyboardAvoidingView,
+  Linking,
   Platform,
   Pressable,
   StyleSheet,
@@ -124,11 +126,27 @@ export default function BuildScreen() {
             }
           },
           onError: (msg) => {
+            // Turn the raw "Build failed (402): Not enough credits…" into a calm
+            // nudge to top up on the web (where credits are bought via Dodo).
+            const outOfCredits = /\b402\b|not enough credits|insufficient/i.test(msg);
+            const shown = outOfCredits
+              ? "You're out of credits. Top up on the web to keep building — your credits work across web and mobile."
+              : msg;
             setMessages((m) =>
               m.map((x) =>
-                x.id === aId && x.role === 'assistant' ? { ...x, text: msg, streaming: false } : x,
+                x.id === aId && x.role === 'assistant' ? { ...x, text: shown, streaming: false } : x,
               ),
             );
+            if (outOfCredits) {
+              Alert.alert(
+                'Out of credits',
+                'Top up on the web to keep building. Your credits work everywhere.',
+                [
+                  { text: 'Not now', style: 'cancel' },
+                  { text: 'Top up', onPress: () => Linking.openURL('https://wyberai.com/pricing') },
+                ],
+              );
+            }
             setBusy(false);
           },
         },
