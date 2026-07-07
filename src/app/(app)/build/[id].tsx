@@ -87,6 +87,21 @@ export default function BuildScreen() {
           onDone: async (full) => {
             try {
               const { files: next, chatText } = applyGeneration(files, full);
+              // Never persist an empty project. If the generation produced no
+              // files (a truncated / errored / chat-only response), keep the
+              // existing files and prompt a retry instead of silently saving {} —
+              // that was leaving behind unbuildable 0-file projects.
+              if (Object.keys(next).length === 0) {
+                setMessages((m) =>
+                  m.map((x) =>
+                    x.id === aId && x.role === 'assistant'
+                      ? { ...x, text: chatText || "That didn't produce an app — tap send to try again.", streaming: false }
+                      : x,
+                  ),
+                );
+                setBusy(false);
+                return;
+              }
               setFiles(next);
               await saveFiles(id, next);
               setMessages((m) =>

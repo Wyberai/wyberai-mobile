@@ -91,9 +91,15 @@ export async function buildMobilePreviewHtml(projectId: string, files: FileMap):
   return data.html;
 }
 
-/** POST files to the preview builder and return a loadable preview URL (web apps). */
+/**
+ * Build a web-app preview and return a loadable URL. Goes through wyberai.com's
+ * /api/preview-build (NOT the raw preview-builder) so the files are sanitized
+ * server-side first — same guaranteed entry/config the desktop editor adds.
+ * Posting raw files straight to the builder produced an entry-less project that
+ * never rendered ("Preview isn't ready yet").
+ */
 export async function buildPreview(projectId: string, files: FileMap): Promise<string> {
-  const res = await fetch(`${PREVIEW_BUILDER}/build`, {
+  const res = await fetch(`${API_BASE}/api/preview-build`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ files, projectId }),
