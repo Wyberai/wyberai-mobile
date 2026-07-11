@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
 import {
   FlatList,
   Pressable,
@@ -7,7 +7,7 @@ import {
   Text,
   View,
 } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useRouter, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useSession } from '@/ctx/session';
 import { Spinner } from '@/components/Spinner';
@@ -40,9 +40,15 @@ export default function ProjectsScreen() {
     else setProjects((data ?? []) as Project[]);
   }, [user?.id]);
 
-  useEffect(() => {
-    load().finally(() => setLoading(false));
-  }, [load]);
+  // Refetch every time the Projects tab regains focus — this tab never unmounts,
+  // so a mount-only effect left the list stale after creating a project (the user
+  // had to pull-to-refresh). useFocusEffect fires on first mount AND on every
+  // return to the tab, so a newly-built app now appears automatically.
+  useFocusEffect(
+    useCallback(() => {
+      load().finally(() => setLoading(false));
+    }, [load]),
+  );
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);

@@ -253,35 +253,56 @@ export function streamGenerate(
   const xhr = new XMLHttpRequest();
   xhr.open('POST', `${API_BASE}/api/generate`);
   xhr.setRequestHeader('Content-Type', 'application/json');
-  xhr.timeout = 820_000;
+  // ~6 min ceiling. If the connection stalls, ontimeout fires onError → the
+  // caller resets its busy flag. (Was 820s, long enough to look permanently
+  // frozen.)
+  xhr.timeout = 360_000;
 
-  accessToken().then((token) => {
-    if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+  // CRITICAL: the token fetch must never strand the UI. Previously every handler
+  // wiring + xhr.send() lived inside accessToken().then(...) with no catch/
+  // timeout — if getSession() hung or rejected, nothing fired, onDone/onError
+  // never ran, and the caller's `busy` spinner locked forever (the "frozen
+  // builder"). withTimeout + .catch guarantees onError always runs, so busy
+  // always resets.
+  let aborted = false;
+  withTimeout(accessToken(), 15_000, 'Sign-in check')
+    .then((token) => {
+      if (aborted) return;
+      if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`);
 
-    xhr.onprogress = () => handlers.onText(xhr.responseText);
-    xhr.onload = () => {
-      if (xhr.status >= 200 && xhr.status < 300) handlers.onDone(xhr.responseText);
-      else handlers.onError(`Build failed (${xhr.status}): ${xhr.responseText.slice(0, 200)}`);
-    };
-    xhr.onerror = () => handlers.onError('Network error during build');
-    xhr.ontimeout = () => handlers.onError('Build timed out');
+      xhr.onprogress = () => handlers.onText(xhr.responseText);
+      xhr.onload = () => {
+        if (xhr.status >= 200 && xhr.status < 300) handlers.onDone(xhr.responseText);
+        else handlers.onError(`Build failed (${xhr.status}): ${xhr.responseText.slice(0, 200)}`);
+      };
+      xhr.onerror = () => handlers.onError('Network error during build');
+      xhr.ontimeout = () => handlers.onError('Build timed out — check your connection and try again.');
 
-    xhr.send(
-      JSON.stringify({
-        prompt: params.prompt,
-        framework: 'react-vite',
-        fileContext,
-        history: params.history ?? [],
-        userId: params.userId,
-        projectId: params.projectId,
-        projectType: params.projectType,
-        isFirstBuild,
-        stage: 'full',
-      }),
-    );
-  });
+      xhr.send(
+        JSON.stringify({
+          prompt: params.prompt,
+          framework: 'react-vite',
+          fileContext,
+          history: params.history ?? [],
+          userId: params.userId,
+          projectId: params.projectId,
+          projectType: params.projectType,
+          isFirstBuild,
+          stage: 'full',
+        }),
+      );
+    })
+    .catch((err: unknown) => {
+      if (aborted) return;
+      handlers.onError(err instanceof Error ? err.message : 'Could not start the build. Please try again.');
+    });
 
-  return { abort: () => xhr.abort() };
+  return {
+    abort: () => {
+      aborted = true;
+      try { xhr.abort(); } catch { /* already done */ }
+    },
+  };
 }
 
 /**

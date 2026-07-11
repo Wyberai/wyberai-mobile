@@ -19,7 +19,6 @@ import { supabase } from '@/lib/supabase';
 import {
   applyGeneration,
   buildPreview,
-  fetchCredits,
   saveFiles,
   streamGenerate,
   type FileMap,
@@ -35,7 +34,9 @@ type Msg =
 export default function BuildScreen() {
   const { id, prompt: initialPrompt } = useLocalSearchParams<{ id: string; prompt?: string }>();
   const router = useRouter();
-  const { user } = useSession();
+  // Credits come from the shared session context (single source, auto-refreshed
+  // on app foreground) so a web top-up reflects here too.
+  const { user, credits, refreshCredits } = useSession();
 
   const [name, setName] = useState('');
   const [type, setType] = useState<ProjectType>('web');
@@ -44,16 +45,9 @@ export default function BuildScreen() {
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
   const [loaded, setLoaded] = useState(false);
-  const [credits, setCredits] = useState<number | null>(null);
   const handleRef = useRef<{ abort: () => void } | null>(null);
   const firedInitial = useRef(false);
   const listRef = useRef<FlatList<Msg>>(null);
-
-  const refreshCredits = useCallback(() => {
-    fetchCredits()
-      .then(setCredits)
-      .catch(() => {});
-  }, []);
 
   useEffect(() => {
     if (!id) return;
@@ -166,6 +160,24 @@ export default function BuildScreen() {
     [id, user?.id, busy, type, files, refreshCredits],
   );
 
+  // Cancel an in-flight build — abort the stream, unlock the UI, and close out
+  // the streaming bubble. Guarantees recovery even if the network never replies.
+  const cancel = useCallback(() => {
+    handleRef.current?.abort();
+    handleRef.current = null;
+    setBusy(false);
+    setMessages((m) =>
+      m.map((x) =>
+        x.role === 'assistant' && x.streaming
+          ? { ...x, streaming: false, text: x.text || 'Build cancelled.' }
+          : x,
+      ),
+    );
+  }, []);
+
+  // Abort any in-flight build if the user leaves the screen.
+  useEffect(() => () => handleRef.current?.abort(), []);
+
   // Auto-fire the initial prompt passed from the "New app" screen, once.
   useEffect(() => {
     if (loaded && !firedInitial.current && initialPrompt && typeof initialPrompt === 'string') {
@@ -240,16 +252,17 @@ export default function BuildScreen() {
           editable={!busy}
         />
         <Pressable
-          onPress={() => run(input)}
-          disabled={busy || !input.trim()}
+          onPress={busy ? cancel : () => run(input)}
+          disabled={!busy && !input.trim()}
+          accessibilityLabel={busy ? 'Cancel build' : 'Send'}
           style={({ pressed }) => [
             styles.send,
-            (busy || !input.trim()) && styles.sendDisabled,
+            !busy && !input.trim() && styles.sendDisabled,
             pressed && styles.sendPressed,
           ]}
         >
           {busy ? (
-            <ActivityIndicator color={brand.onAccent} size="small" />
+            <Ionicons name="stop" size={18} color={brand.onAccent} />
           ) : (
             <Ionicons name="arrow-up" size={20} color={brand.onAccent} />
           )}

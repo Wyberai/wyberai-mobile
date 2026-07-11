@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useRef, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import type { Session, User } from '@supabase/supabase-js';
 import { AppState } from 'react-native';
 import * as WebBrowser from 'expo-web-browser';
@@ -6,7 +6,7 @@ import * as Linking from 'expo-linking';
 import * as AppleAuthentication from 'expo-apple-authentication';
 import { supabase } from '@/lib/supabase';
 import { registerForPushNotifications } from '@/lib/push';
-import { triggerOnboarding } from '@/lib/api';
+import { triggerOnboarding, fetchCredits } from '@/lib/api';
 
 export type OAuthProvider = 'google' | 'github';
 
@@ -14,6 +14,10 @@ type SessionContextValue = {
   session: Session | null;
   user: User | null;
   isLoading: boolean;
+  /** Current credit balance — single source of truth, refreshed on foreground. */
+  credits: number | null;
+  /** Refetch the credit balance (call after a build, or returning from top-up). */
+  refreshCredits: () => void;
   /** Sign in with Google or GitHub (opens a browser session, returns to the app). */
   signInWithProvider: (provider: OAuthProvider) => Promise<{ error: string | null }>;
   /** Native Sign in with Apple (iOS only). Required by Apple 4.8 alongside social. */
@@ -42,7 +46,12 @@ export function useSession() {
 export function SessionProvider({ children }: { children: React.ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [credits, setCredits] = useState<number | null>(null);
   const registeredFor = useRef<string | null>(null);
+
+  const refreshCredits = useCallback(() => {
+    fetchCredits().then(setCredits).catch(() => {});
+  }, []);
 
   useEffect(() => {
     let settled = false;
@@ -68,9 +77,14 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     });
 
     // Supabase's recommended RN pattern: only auto-refresh while foregrounded.
+    // Also refetch credits on foreground — this is what makes a credit top-up
+    // bought in the web browser (an external app) reflect when the user returns,
+    // which useFocusEffect can't catch (no in-app navigation event occurs).
     const appStateSub = AppState.addEventListener('change', (state) => {
-      if (state === 'active') supabase.auth.startAutoRefresh();
-      else supabase.auth.stopAutoRefresh();
+      if (state === 'active') {
+        supabase.auth.startAutoRefresh();
+        refreshCredits();
+      } else supabase.auth.stopAutoRefresh();
     });
 
     return () => {
@@ -108,9 +122,13 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       registeredFor.current = uid;
       registerForPushNotifications(uid);
       triggerOnboarding(); // welcome email + signup tracking (server-guarded, once per user)
+      refreshCredits();
     }
-    if (!uid) registeredFor.current = null;
-  }, [session?.user?.id]);
+    if (!uid) {
+      registeredFor.current = null;
+      setCredits(null);
+    }
+  }, [session?.user?.id, refreshCredits]);
 
   async function signInWithProvider(provider: OAuthProvider) {
     try {
@@ -192,6 +210,8 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
         session,
         user: session?.user ?? null,
         isLoading,
+        credits,
+        refreshCredits,
         signInWithProvider,
         signInWithApple,
         sendCode,

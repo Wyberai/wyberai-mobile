@@ -23,7 +23,7 @@ import { brand, font, radius, space } from '@/lib/theme';
 const ENABLE_IAP = process.env.EXPO_PUBLIC_ENABLE_IAP === 'true';
 
 export default function AccountScreen() {
-  const { user, signOut } = useSession();
+  const { user, signOut, credits } = useSession();
   const router = useRouter();
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
@@ -91,7 +91,7 @@ export default function AccountScreen() {
         </View>
       ) : (
         <View style={styles.statRow}>
-          <StatCard label="Credits" value={String(profile?.credits ?? '—')} icon="flash-outline" />
+          <StatCard label="Credits" value={String(credits ?? profile?.credits ?? '—')} icon="flash-outline" />
           <StatCard label="Plan" value={capitalize(profile?.plan ?? 'free')} icon="ribbon-outline" />
         </View>
       )}
