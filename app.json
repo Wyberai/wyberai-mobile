@@ -49,7 +49,8 @@
       ],
       "expo-web-browser",
       "expo-secure-store",
-      "expo-apple-authentication"
+      "expo-apple-authentication",
+      "./plugins/withReleaseSigning"
     ],
     "experiments": {
       "typedRoutes": true,
@@ -58,16 +59,15 @@
     "extra": {
       "router": {},
       "eas": {
-        "projectId": "b589e6cd-65f1-4946-a7bb-c56df95f9ff8"
+        "projectId": "6e2b1feb-05c1-473c-8e5e-27b5f07587f8"
       }
     },
-    "owner": "wyberai",
     "runtimeVersion": {
       "policy": "appVersion"
     },
     "updates": {
-      "enabled": false,
-      "url": "https://u.expo.dev/b589e6cd-65f1-4946-a7bb-c56df95f9ff8"
-    }
+      "enabled": false
+    },
+    "owner": "signalpulse"
   }
 }

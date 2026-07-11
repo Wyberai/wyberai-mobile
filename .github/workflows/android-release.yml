@@ -1,0 +1,104 @@
+name: Android Release (.aab)
+
+# Builds a signed Android App Bundle for the WyberAi app — entirely on GitHub's
+# free Linux runners, with NO Expo EAS dependency. This is `expo prebuild`
+# + `./gradlew bundleRelease`, i.e. exactly what EAS runs, but on our own CI.
+#
+# Run it manually: Actions tab → "Android Release (.aab)" → Run workflow.
+# Download the result from the run's Artifacts, then upload the .aab to the
+# Google Play Console.
+#
+# Required repository secrets (Settings → Secrets and variables → Actions):
+#   ANDROID_KEYSTORE_BASE64   base64 of your upload keystore (.jks) — see docs/ANDROID_BUILD.md
+#   ANDROID_KEYSTORE_PASSWORD store password
+#   ANDROID_KEY_ALIAS         key alias
+#   ANDROID_KEY_PASSWORD      key password
+
+on:
+  workflow_dispatch:
+    inputs:
+      profile:
+        description: "Build profile"
+        type: choice
+        default: release
+        options: [release]
+
+concurrency:
+  group: android-release
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Decode upload keystore
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          if [ -z "$KEYSTORE_B64" ]; then
+            echo "::error::ANDROID_KEYSTORE_BASE64 secret is not set. See docs/ANDROID_BUILD.md."
+            exit 1
+          fi
+          echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/upload.keystore"
+
+      - name: Prebuild native android/ (Expo CNG)
+        run: npx expo prebuild --platform android --no-install
+
+      - name: Place keystore for Gradle
+        run: cp "$RUNNER_TEMP/upload.keystore" android/app/upload.keystore
+
+      - name: Build signed AAB
+        working-directory: android
+        env:
+          # ORG_GRADLE_PROJECT_<name> exposes <name> as a Gradle project property,
+          # which plugins/withReleaseSigning.js reads. Keystore path is relative
+          # to android/app (Gradle resolves signingConfig storeFile from there).
+          ORG_GRADLE_PROJECT_WYBER_UPLOAD_STORE_FILE: upload.keystore
+          ORG_GRADLE_PROJECT_WYBER_UPLOAD_STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ORG_GRADLE_PROJECT_WYBER_UPLOAD_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ORG_GRADLE_PROJECT_WYBER_UPLOAD_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: ./gradlew :app:bundleRelease --no-daemon --stacktrace
+
+      - name: Verify AAB is signed
+        run: |
+          AAB=$(find android/app/build/outputs/bundle/release -name '*.aab' | head -1)
+          echo "Built: $AAB"
+          # A signed bundle contains the v1 signature block under META-INF.
+          if unzip -l "$AAB" | grep -qiE 'META-INF/.*\.(RSA|EC|DSA)'; then
+            echo "✓ AAB carries a signing block."
+          else
+            echo "::warning::Could not confirm a signature block — verify before uploading."
+          fi
+
+      - name: Upload AAB artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: wyberai-android-aab
+          path: android/app/build/outputs/bundle/release/*.aab
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Clean up keystore
+        if: always()
+        run: rm -f "$RUNNER_TEMP/upload.keystore" android/app/upload.keystore
