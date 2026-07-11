@@ -102,3 +102,5 @@ jobs:
       - name: Clean up keystore
         if: always()
         run: rm -f "$RUNNER_TEMP/upload.keystore" android/app/upload.keystore
+
+# (re-indexed)
