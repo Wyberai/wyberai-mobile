@@ -34,6 +34,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Free up disk space
+        # The full 4-ABI native build + debug symbols fills the runner's ~14 GB,
+        # failing packageReleaseBundle with "No space left on device". Delete the
+        # preinstalled toolchains an Android build never touches (~20-25 GB).
+        run: |
+          echo "== disk before =="; df -h /
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/.ghcup \
+            /opt/hostedtoolcache/CodeQL /usr/local/share/powershell /usr/share/swift
+          sudo docker image prune --all --force || true
+          echo "== disk after =="; df -h /
+
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
