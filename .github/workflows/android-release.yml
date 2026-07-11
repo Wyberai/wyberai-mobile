@@ -30,7 +30,7 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
 
@@ -49,6 +49,16 @@ jobs:
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
 
+      - name: Cache Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: |
+            gradle-${{ runner.os }}-
+
       - name: Install dependencies
         run: npm ci
 
@@ -64,6 +74,22 @@ jobs:
 
       - name: Prebuild native android/ (Expo CNG)
         run: npx expo prebuild --platform android --no-install
+
+      - name: Raise Gradle/Kotlin JVM memory (fix Metaspace OOM)
+        # Expo's generated gradle.properties caps Metaspace at 512m, which the
+        # New Architecture Kotlin/C++ compile exhausts — the JVM then thrashes in
+        # GC and the build times out. Appended keys override the earlier ones
+        # (last value wins when Gradle loads the properties file). ubuntu-latest
+        # has ~16 GB RAM, so this is comfortably within budget.
+        run: |
+          {
+            echo ""
+            echo "org.gradle.jvmargs=-Xmx5g -XX:MaxMetaspaceSize=2g -XX:+UseParallelGC -Dfile.encoding=UTF-8"
+            echo "kotlin.daemon.jvmargs=-Xmx2g -XX:MaxMetaspaceSize=768m"
+            echo "org.gradle.caching=true"
+          } >> android/gradle.properties
+          echo "--- effective memory settings ---"
+          grep -E 'jvmargs|caching' android/gradle.properties
 
       - name: Place keystore for Gradle
         run: cp "$RUNNER_TEMP/upload.keystore" android/app/upload.keystore
