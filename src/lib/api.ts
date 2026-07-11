@@ -225,6 +225,60 @@ export async function unpublishProject(projectId: string): Promise<void> {
   }
 }
 
+// ── Plan Mode (mirrors the web app's plan-before-build) ────────────────────
+export type PlanFeature = { id: string; title: string; description: string; icon: string };
+export type PlanScreen = { id: string; name: string; icon: string };
+export type Plan = {
+  title: string;
+  complexity: string;
+  estimatedCredits: number;
+  approach: string;
+  features: PlanFeature[];
+  flow: { screens: PlanScreen[] };
+  integrations: string[];
+  warnings: string[];
+  creditsCharged?: number;
+};
+
+/**
+ * Ask the server for a structured plan (features + screen flow) before building.
+ * Same route + cost as the web "Show me a plan" step (5 credits). 402 → surface
+ * a clear out-of-credits message so the user can just build instead.
+ */
+export async function planProject(prompt: string, projectType: ProjectType): Promise<Plan> {
+  const token = await withTimeout(accessToken(), 15_000, 'Sign-in check');
+  const res = await fetch(`${API_BASE}/api/plan`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify({ prompt, framework: 'react-vite', fileContext: '', phase: 'plan', projectType }),
+  });
+  const data = (await res.json().catch(() => ({}))) as Plan & { error?: string };
+  if (res.status === 402) throw new Error('Not enough credits to plan (5 credits). Top up, or just build.');
+  if (!res.ok || !data.title) throw new Error(data.error || `Couldn't build a plan (${res.status}).`);
+  return data;
+}
+
+/** Flatten an approved plan into a build prompt the generator can act on. */
+export function planToSpec(plan: Plan, originalPrompt: string): string {
+  const feats = plan.features.map((f, i) => `${i + 1}. ${f.title} — ${f.description}`).join('\n');
+  const flow = plan.flow.screens.map((s) => s.name).join(' → ');
+  return [
+    `Build this app: ${plan.title}`,
+    plan.approach,
+    '',
+    'FEATURES (implement all):',
+    feats,
+    flow ? `\nSCREEN FLOW: ${flow}` : '',
+    plan.integrations.length ? `\nINTEGRATIONS: ${plan.integrations.join(', ')}` : '',
+    `\n(User's original request: ${originalPrompt})`,
+  ]
+    .filter(Boolean)
+    .join('\n');
+}
+
 export type GenerateHandle = { abort: () => void };
 
 /**

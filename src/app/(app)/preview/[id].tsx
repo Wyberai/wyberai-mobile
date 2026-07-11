@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Alert, Pressable, Share, StyleSheet, Text, View } from 'react-native';
 import { Stack, useLocalSearchParams } from 'expo-router';
 import { WebView } from 'react-native-webview';
 import { Ionicons } from '@expo/vector-icons';
@@ -17,6 +17,20 @@ type State =
 export default function PreviewScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const [state, setState] = useState<State>({ phase: 'building' });
+  // The durable link to share is the PUBLISHED url; the preview url is transient.
+  const [publishedUrl, setPublishedUrl] = useState<string | null>(null);
+
+  const onShare = useCallback(() => {
+    if (publishedUrl) {
+      Share.share({ message: publishedUrl, url: publishedUrl });
+    } else {
+      Alert.alert(
+        'Publish to share',
+        'Publish this app first to get a permanent link you can share. Open the project to publish it.',
+        [{ text: 'OK' }],
+      );
+    }
+  }, [publishedUrl]);
 
   const build = useCallback(async () => {
     if (!id) return;
@@ -24,9 +38,10 @@ export default function PreviewScreen() {
     try {
       const { data } = await supabase
         .from('projects')
-        .select('files,project_type')
+        .select('files,project_type,published_url')
         .eq('id', id)
         .maybeSingle();
+      setPublishedUrl((data?.published_url as string | null) ?? null);
       const files = (data?.files as FileMap) ?? {};
       if (Object.keys(files).length === 0) {
         setState({ phase: 'error', message: 'Nothing to preview yet — build something first.' });
@@ -56,9 +71,14 @@ export default function PreviewScreen() {
         options={{
           title: 'Preview',
           headerRight: () => (
-            <Pressable onPress={build} hitSlop={8} style={styles.refresh}>
-              <Ionicons name="refresh" size={18} color={brand.accent} />
-            </Pressable>
+            <View style={styles.headerRow}>
+              <Pressable onPress={onShare} hitSlop={8} style={styles.refresh}>
+                <Ionicons name="share-outline" size={18} color={brand.accent} />
+              </Pressable>
+              <Pressable onPress={build} hitSlop={8} style={styles.refresh}>
+                <Ionicons name="refresh" size={18} color={brand.accent} />
+              </Pressable>
+            </View>
           ),
         }}
       />
@@ -133,4 +153,5 @@ const styles = StyleSheet.create({
   },
   retryText: { color: brand.onAccent, fontSize: 15, fontWeight: '700' },
   refresh: { padding: 4 },
+  headerRow: { flexDirection: 'row', alignItems: 'center', gap: space.md },
 });

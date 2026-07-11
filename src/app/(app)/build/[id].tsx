@@ -7,6 +7,7 @@ import {
   Linking,
   Platform,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -19,9 +20,12 @@ import { supabase } from '@/lib/supabase';
 import {
   applyGeneration,
   buildPreview,
+  planProject,
+  planToSpec,
   saveFiles,
   streamGenerate,
   type FileMap,
+  type Plan,
   type ProjectType,
 } from '@/lib/api';
 import { cleanStreamingDisplay, extractProgressLines } from '@/lib/file-parser';
@@ -45,6 +49,10 @@ export default function BuildScreen() {
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
   const [loaded, setLoaded] = useState(false);
+  // Plan Mode: on a first build, offer a plan before generating code.
+  const [planState, setPlanState] = useState<'none' | 'offer' | 'planning' | 'ready'>('none');
+  const [plan, setPlan] = useState<Plan | null>(null);
+  const pendingPrompt = useRef('');
   const handleRef = useRef<{ abort: () => void } | null>(null);
   const firedInitial = useRef(false);
   const listRef = useRef<FlatList<Msg>>(null);
@@ -68,13 +76,15 @@ export default function BuildScreen() {
   }, [id, refreshCredits]);
 
   const run = useCallback(
-    (promptText: string) => {
+    (promptText: string, displayText?: string) => {
       if (!id || !user?.id || busy || !promptText.trim()) return;
       const prompt = promptText.trim();
       setInput('');
       setBusy(true);
 
-      const userMsg: Msg = { id: `u${Date.now()}`, role: 'user', text: prompt };
+      // displayText lets the chat bubble show the user's own words while the
+      // model receives a richer spec (used by Plan Mode → build).
+      const userMsg: Msg = { id: `u${Date.now()}`, role: 'user', text: (displayText ?? prompt).trim() };
       const aId = `a${Date.now()}`;
       const assistant: Msg = { id: aId, role: 'assistant', text: '', progress: [], streaming: true };
       setMessages((m) => [...m, userMsg, assistant]);
@@ -178,13 +188,46 @@ export default function BuildScreen() {
   // Abort any in-flight build if the user leaves the screen.
   useEffect(() => () => handleRef.current?.abort(), []);
 
-  // Auto-fire the initial prompt passed from the "New app" screen, once.
+  // Plan Mode handlers.
+  const justBuild = useCallback(() => {
+    const p = pendingPrompt.current;
+    setPlanState('none');
+    run(p);
+  }, [run]);
+
+  const seePlan = useCallback(async () => {
+    setPlanState('planning');
+    try {
+      const p = await planProject(pendingPrompt.current, type);
+      setPlan(p);
+      setPlanState('ready');
+      refreshCredits();
+    } catch (e) {
+      setPlanState('offer');
+      Alert.alert('Couldn’t plan', (e as Error).message, [{ text: 'OK' }]);
+    }
+  }, [type, refreshCredits]);
+
+  const buildFromPlan = useCallback(() => {
+    if (!plan) return;
+    const spec = planToSpec(plan, pendingPrompt.current);
+    setPlanState('none');
+    run(spec, pendingPrompt.current); // model gets the spec; bubble shows the user's words
+  }, [plan, run]);
+
+  // On a FIRST build, offer a plan instead of generating immediately; follow-up
+  // edits (project already has files) build directly.
   useEffect(() => {
     if (loaded && !firedInitial.current && initialPrompt && typeof initialPrompt === 'string') {
       firedInitial.current = true;
-      run(initialPrompt);
+      if (Object.keys(files).length === 0) {
+        pendingPrompt.current = initialPrompt;
+        setPlanState('offer');
+      } else {
+        run(initialPrompt);
+      }
     }
-  }, [loaded, initialPrompt, run]);
+  }, [loaded, initialPrompt, run, files]);
 
   const hasFiles = Object.keys(files).length > 0;
 
@@ -220,6 +263,15 @@ export default function BuildScreen() {
         <View style={styles.center}>
           <ActivityIndicator color={brand.accent} />
         </View>
+      ) : planState !== 'none' ? (
+        <PlanPanel
+          state={planState}
+          plan={plan}
+          type={type}
+          onSeePlan={seePlan}
+          onJustBuild={justBuild}
+          onBuildFromPlan={buildFromPlan}
+        />
       ) : (
         <FlatList
           ref={listRef}
@@ -241,6 +293,7 @@ export default function BuildScreen() {
         />
       )}
 
+      {planState === 'none' && (
       <View style={styles.inputBar}>
         <TextInput
           style={styles.input}
@@ -268,9 +321,137 @@ export default function BuildScreen() {
           )}
         </Pressable>
       </View>
+      )}
     </KeyboardAvoidingView>
   );
 }
+
+function PlanPanel({
+  state,
+  plan,
+  type,
+  onSeePlan,
+  onJustBuild,
+  onBuildFromPlan,
+}: {
+  state: 'offer' | 'planning' | 'ready';
+  plan: Plan | null;
+  type: ProjectType;
+  onSeePlan: () => void;
+  onJustBuild: () => void;
+  onBuildFromPlan: () => void;
+}) {
+  if (state === 'planning') {
+    return (
+      <View style={ps.center}>
+        <ActivityIndicator color={brand.accent} />
+        <Text style={ps.planningText}>Thinking through the plan…</Text>
+      </View>
+    );
+  }
+
+  if (state === 'offer') {
+    return (
+      <View style={ps.center}>
+        <Ionicons name="map-outline" size={40} color={brand.accent} />
+        <Text style={ps.title}>Plan it first?</Text>
+        <Text style={ps.body}>
+          See the features and screens before building a {type === 'mobile' ? 'mobile app' : 'web app'} —
+          fewer wasted builds.
+        </Text>
+        <Pressable style={ps.primary} onPress={onSeePlan}>
+          <Ionicons name="sparkles" size={16} color={brand.onAccent} />
+          <Text style={ps.primaryText}>Show me a plan · 5 credits</Text>
+        </Pressable>
+        <Pressable style={ps.ghost} onPress={onJustBuild}>
+          <Text style={ps.ghostText}>Just build it</Text>
+        </Pressable>
+      </View>
+    );
+  }
+
+  if (!plan) return null;
+  return (
+    <ScrollView contentContainerStyle={ps.scroll}>
+      <Text style={ps.planTitle}>{plan.title}</Text>
+      <Text style={ps.approach}>{plan.approach}</Text>
+
+      {plan.flow.screens.length > 0 ? (
+        <View style={ps.flowRow}>
+          {plan.flow.screens.map((s, i) => (
+            <View key={s.id} style={ps.flowItem}>
+              <Text style={ps.flowText}>{s.name}</Text>
+              {i < plan.flow.screens.length - 1 ? <Text style={ps.flowArrow}>→</Text> : null}
+            </View>
+          ))}
+        </View>
+      ) : null}
+
+      <Text style={ps.sectionLabel}>FEATURES</Text>
+      {plan.features.map((f) => (
+        <View key={f.id} style={ps.feature}>
+          <Text style={ps.featureTitle}>{f.title}</Text>
+          <Text style={ps.featureDesc}>{f.description}</Text>
+        </View>
+      ))}
+
+      {plan.warnings.length > 0 ? (
+        <View style={ps.warnBox}>
+          {plan.warnings.map((w, i) => (
+            <Text key={i} style={ps.warnText}>
+              • {w}
+            </Text>
+          ))}
+        </View>
+      ) : null}
+
+      <Pressable style={ps.primary} onPress={onBuildFromPlan}>
+        <Ionicons name="hammer" size={16} color={brand.onAccent} />
+        <Text style={ps.primaryText}>Build this</Text>
+      </Pressable>
+      <Pressable style={ps.ghost} onPress={onJustBuild}>
+        <Text style={ps.ghostText}>Skip — build from my prompt</Text>
+      </Pressable>
+    </ScrollView>
+  );
+}
+
+const ps = StyleSheet.create({
+  center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: space.xl, gap: space.md },
+  planningText: { color: brand.textMuted, fontSize: 14, marginTop: space.sm },
+  title: { color: brand.text, fontSize: 20, fontWeight: '700', marginTop: space.sm },
+  body: { color: brand.textMuted, fontSize: 14, textAlign: 'center', lineHeight: 20, maxWidth: 300 },
+  scroll: { padding: space.lg, gap: space.sm },
+  planTitle: { color: brand.text, fontSize: 22, fontWeight: '800' },
+  approach: { color: brand.textMuted, fontSize: 14, lineHeight: 21, marginBottom: space.sm },
+  flowRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 6, marginBottom: space.sm },
+  flowItem: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  flowText: {
+    color: brand.text, fontSize: 12, fontWeight: '600',
+    backgroundColor: brand.surfaceAlt, borderRadius: radius.sm,
+    paddingHorizontal: 10, paddingVertical: 6, overflow: 'hidden',
+  },
+  flowArrow: { color: brand.textFaint, fontSize: 14 },
+  sectionLabel: { color: brand.textFaint, fontSize: 11, fontWeight: '700', letterSpacing: 1, marginTop: space.sm },
+  feature: {
+    backgroundColor: brand.surface, borderRadius: radius.md, borderWidth: 1, borderColor: brand.border,
+    padding: space.md, gap: 3,
+  },
+  featureTitle: { color: brand.text, fontSize: 14, fontWeight: '700' },
+  featureDesc: { color: brand.textMuted, fontSize: 13, lineHeight: 19 },
+  warnBox: {
+    backgroundColor: 'rgba(245,158,11,0.08)', borderRadius: radius.md,
+    borderWidth: 1, borderColor: 'rgba(245,158,11,0.25)', padding: space.md, gap: 4, marginTop: space.xs,
+  },
+  warnText: { color: brand.warning, fontSize: 13, lineHeight: 19 },
+  primary: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+    backgroundColor: brand.accent, borderRadius: radius.md, paddingVertical: 13, marginTop: space.md,
+  },
+  primaryText: { color: brand.onAccent, fontSize: 15, fontWeight: '700' },
+  ghost: { alignItems: 'center', paddingVertical: 12 },
+  ghostText: { color: brand.textMuted, fontSize: 14, fontWeight: '600' },
+});
 
 function MessageBubble({ msg }: { msg: Msg }) {
   if (msg.role === 'user') {
