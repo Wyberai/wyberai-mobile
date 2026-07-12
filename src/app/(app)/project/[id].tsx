@@ -7,14 +7,17 @@ import {
   Share,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from 'react-native';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import * as WebBrowser from 'expo-web-browser';
+import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '@/lib/supabase';
 import { projectUrl, isMobileProject, type Project } from '@/lib/types';
-import { publishProject, unpublishProject } from '@/lib/api';
+import { deleteProject, publishProject, renameProject, unpublishProject } from '@/lib/api';
+import { success, tap, warn } from '@/lib/haptics';
 import { Spinner } from '@/components/Spinner';
 import { brand, font, radius, space } from '@/lib/theme';
 
@@ -27,6 +30,9 @@ export default function ProjectDetail() {
   const [project, setProject] = useState<Project | null>(null);
   const [loading, setLoading] = useState(true);
   const [publishing, setPublishing] = useState(false);
+  const [editingName, setEditingName] = useState(false);
+  const [draftName, setDraftName] = useState('');
+  const [savingName, setSavingName] = useState(false);
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -59,6 +65,50 @@ export default function ProjectDetail() {
     } else {
       Alert.alert('Publish failed', result.error);
     }
+  }
+
+  async function saveName() {
+    if (!project || savingName) return;
+    const next = draftName.trim();
+    if (!next || next === project.name) {
+      setEditingName(false);
+      return;
+    }
+    setSavingName(true);
+    try {
+      await renameProject(project.id, next);
+      setProject({ ...project, name: next });
+      success();
+    } catch (e) {
+      Alert.alert('Rename failed', (e as Error).message);
+    } finally {
+      setSavingName(false);
+      setEditingName(false);
+    }
+  }
+
+  function doDelete() {
+    if (!project) return;
+    warn();
+    Alert.alert(
+      'Delete this app?',
+      `"${project.name || 'Untitled'}" and its full history will be permanently deleted. This cannot be undone.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await deleteProject(project.id);
+              router.back();
+            } catch (e) {
+              Alert.alert('Delete failed', (e as Error).message);
+            }
+          },
+        },
+      ],
+    );
   }
 
   function doUnpublish() {
@@ -96,7 +146,52 @@ export default function ProjectDetail() {
         </View>
       ) : (
         <ScrollView style={styles.scroll} contentContainerStyle={styles.content}>
-          <Text style={styles.title}>{project.name || 'Untitled'}</Text>
+          {project.thumbnail_url ? (
+            <Image
+              source={{ uri: project.thumbnail_url }}
+              style={styles.thumb}
+              contentFit="cover"
+              transition={200}
+            />
+          ) : null}
+
+          {editingName ? (
+            <View style={styles.renameRow}>
+              <TextInput
+                style={styles.renameInput}
+                value={draftName}
+                onChangeText={setDraftName}
+                autoFocus
+                maxLength={60}
+                onSubmitEditing={saveName}
+                returnKeyType="done"
+              />
+              <Pressable onPress={saveName} hitSlop={8} style={styles.renameBtn}>
+                {savingName ? (
+                  <ActivityIndicator size="small" color={brand.accent} />
+                ) : (
+                  <Ionicons name="checkmark" size={22} color={brand.accent} />
+                )}
+              </Pressable>
+              <Pressable onPress={() => setEditingName(false)} hitSlop={8} style={styles.renameBtn}>
+                <Ionicons name="close" size={22} color={brand.textMuted} />
+              </Pressable>
+            </View>
+          ) : (
+            <View style={styles.titleRow}>
+              <Text style={styles.title}>{project.name || 'Untitled'}</Text>
+              <Pressable
+                onPress={() => {
+                  tap();
+                  setDraftName(project.name ?? '');
+                  setEditingName(true);
+                }}
+                hitSlop={10}
+              >
+                <Ionicons name="pencil-outline" size={18} color={brand.textMuted} />
+              </Pressable>
+            </View>
+          )}
           {project.description ? (
             <Text style={styles.desc}>{project.description}</Text>
           ) : null}
@@ -122,6 +217,30 @@ export default function ProjectDetail() {
             <Ionicons name="play-outline" size={18} color={brand.text} />
             <Text style={styles.secondaryText}>Preview build</Text>
           </Pressable>
+
+          {/* Project tools — Lovable-parity: source, history, instant themes. */}
+          <View style={styles.toolsCard}>
+            <ToolRow
+              icon="color-palette-outline"
+              label="Themes"
+              hint="Retheme instantly · free"
+              onPress={() => router.push(`/themes/${project.id}`)}
+            />
+            <View style={styles.toolDivider} />
+            <ToolRow
+              icon="time-outline"
+              label="Version history"
+              hint="Restore any build"
+              onPress={() => router.push(`/versions/${project.id}`)}
+            />
+            <View style={styles.toolDivider} />
+            <ToolRow
+              icon="code-slash-outline"
+              label="View code"
+              hint="Every file, yours"
+              onPress={() => router.push(`/code/${project.id}`)}
+            />
+          </View>
 
           {/* Publish is web-only. Mobile (RN) projects export to Expo/EAS. */}
           {!isMobile ? (
@@ -177,9 +296,38 @@ export default function ProjectDetail() {
               </Text>
             </View>
           ) : null}
+
+          <Pressable onPress={doDelete} hitSlop={8} style={styles.deleteRow}>
+            <Ionicons name="trash-outline" size={15} color={brand.danger} />
+            <Text style={styles.deleteText}>Delete app</Text>
+          </Pressable>
         </ScrollView>
       )}
     </>
+  );
+}
+
+function ToolRow({
+  icon,
+  label,
+  hint,
+  onPress,
+}: {
+  icon: keyof typeof Ionicons.glyphMap;
+  label: string;
+  hint: string;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable
+      onPress={onPress}
+      style={({ pressed }) => [styles.toolRow, pressed && { backgroundColor: brand.surfaceAlt }]}
+    >
+      <Ionicons name={icon} size={19} color={brand.accent} />
+      <Text style={styles.toolLabel}>{label}</Text>
+      <Text style={styles.toolHint}>{hint}</Text>
+      <Ionicons name="chevron-forward" size={16} color={brand.textFaint} />
+    </Pressable>
   );
 }
 
@@ -249,4 +397,48 @@ const styles = StyleSheet.create({
     marginTop: space.sm,
   },
   noticeText: { color: brand.textMuted, fontSize: 13, lineHeight: 19, flex: 1 },
+  thumb: {
+    width: '100%',
+    height: 160,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: brand.border,
+    backgroundColor: brand.surface,
+  },
+  titleRow: { flexDirection: 'row', alignItems: 'center', gap: space.sm },
+  renameRow: { flexDirection: 'row', alignItems: 'center', gap: space.sm },
+  renameInput: {
+    flex: 1,
+    backgroundColor: brand.surface,
+    borderWidth: 1,
+    borderColor: brand.accent,
+    borderRadius: radius.md,
+    paddingHorizontal: space.md,
+    paddingVertical: space.sm + 2,
+    color: brand.text,
+    fontSize: 18,
+    fontWeight: '700',
+  },
+  renameBtn: { padding: space.xs },
+  toolsCard: {
+    backgroundColor: brand.surface,
+    borderColor: brand.border,
+    borderWidth: 1,
+    borderRadius: radius.lg,
+    overflow: 'hidden',
+    marginTop: space.sm,
+  },
+  toolRow: { flexDirection: 'row', alignItems: 'center', gap: space.md, paddingHorizontal: space.lg, paddingVertical: space.md + 2 },
+  toolLabel: { color: brand.text, fontSize: 15, fontWeight: '600' },
+  toolHint: { color: brand.textFaint, fontSize: 12, flex: 1, textAlign: 'right' },
+  toolDivider: { height: 1, backgroundColor: brand.border, marginLeft: space.lg + 19 + space.md },
+  deleteRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: space.md,
+    marginTop: space.sm,
+  },
+  deleteText: { color: brand.danger, fontSize: 13.5, fontWeight: '600' },
 });

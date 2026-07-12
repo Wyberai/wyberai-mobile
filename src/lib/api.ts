@@ -385,6 +385,176 @@ export function applyGeneration(
   return { files: next, chatText, changed };
 }
 
+// ── Persistent chat history (mirrors the web ChatPanel's /api/projects/messages) ──
+export type StoredMessage = {
+  id: string;
+  role: 'user' | 'assistant';
+  content: string;
+  timestamp: number;
+  filesChanged: string[];
+};
+
+/** Load the project's full chat history (oldest first). [] on any failure. */
+export async function loadMessages(projectId: string): Promise<StoredMessage[]> {
+  try {
+    const token = await accessToken();
+    const res = await fetch(`${API_BASE}/api/projects/messages?projectId=${projectId}`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    const data = (await res.json().catch(() => ({}))) as { messages?: StoredMessage[] };
+    return res.ok ? (data.messages ?? []) : [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Persist one chat message. Fire-and-forget from the caller's perspective —
+ * chat must keep working even if history writes fail.
+ */
+export async function saveMessage(
+  projectId: string,
+  role: 'user' | 'assistant',
+  content: string,
+  opts: { filesChanged?: string[]; clientId?: string } = {},
+): Promise<void> {
+  try {
+    const token = await accessToken();
+    await fetch(`${API_BASE}/api/projects/messages`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify({
+        projectId,
+        role,
+        content,
+        filesChanged: opts.filesChanged ?? [],
+        clientId: opts.clientId ?? null,
+      }),
+    });
+  } catch {
+    /* history is best-effort */
+  }
+}
+
+// ── Version history (mirrors the web /api/versions snapshots) ───────────────
+export type Version = { id: string; label: string; created_at: string; files?: FileMap };
+
+/** Newest-first snapshots for a project (max 20, same as web). */
+export async function listVersions(projectId: string): Promise<Version[]> {
+  const token = await accessToken();
+  const res = await fetch(`${API_BASE}/api/versions?projectId=${projectId}`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  const data = (await res.json().catch(() => ({}))) as { versions?: Version[]; error?: string };
+  if (!res.ok) throw new Error(data.error || `Couldn't load versions (${res.status})`);
+  return data.versions ?? [];
+}
+
+/** Snapshot the current files. Best-effort — a failed snapshot never blocks a build. */
+export async function saveVersion(projectId: string, files: FileMap, label: string): Promise<void> {
+  try {
+    const token = await accessToken();
+    await fetch(`${API_BASE}/api/versions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify({ projectId, files, label: label.slice(0, 80) }),
+    });
+  } catch {
+    /* snapshots are best-effort */
+  }
+}
+
+// ── Community showcase (public challenge gallery) ───────────────────────────
+export type GalleryEntry = {
+  id: string;
+  title: string;
+  description: string | null;
+  handle: string | null;
+  live_url: string;
+  thumbnail_url: string | null;
+  vote_count: number;
+  created_at: string;
+};
+
+/** This week's approved community gallery, ranked by upvotes. [] on failure. */
+export async function fetchGallery(): Promise<GalleryEntry[]> {
+  try {
+    const res = await fetch(`${API_BASE}/api/challenge/entries`);
+    const data = (await res.json().catch(() => ({}))) as { entries?: GalleryEntry[] };
+    return res.ok ? (data.entries ?? []) : [];
+  } catch {
+    return [];
+  }
+}
+
+// ── Project management (RLS-scoped, same as the web dashboard) ──────────────
+export async function renameProject(projectId: string, name: string): Promise<void> {
+  const { error } = await supabase
+    .from('projects')
+    .update({ name: name.trim().slice(0, 60), updated_at: new Date().toISOString() })
+    .eq('id', projectId);
+  if (error) throw new Error(error.message);
+}
+
+export async function deleteProject(projectId: string): Promise<void> {
+  const { error } = await supabase.from('projects').delete().eq('id', projectId);
+  if (error) throw new Error(error.message);
+}
+
+// ── Credit activity (purchases + spends, from the credit_usage audit table) ──
+export type CreditEvent = {
+  id: string;
+  /** Signed delta: positive = credits added (purchase/grant/refund), negative = spent. */
+  delta: number;
+  reason: string;
+  balanceAfter: number | null;
+  createdAt: string;
+};
+
+/**
+ * The user's recent credit activity, newest first. [] on any failure.
+ * NOTE: credit_usage stores `amount` as a positive magnitude for BOTH spends
+ * and grants — direction comes from credits_before → credits_after when both
+ * exist, else from the reason prefix (topup/grant/refund/referral = credit-in).
+ */
+export async function fetchCreditHistory(limit = 30): Promise<CreditEvent[]> {
+  try {
+    const { data: userData } = await supabase.auth.getUser();
+    const userId = userData.user?.id;
+    if (!userId) return [];
+    const { data } = await supabase
+      .from('credit_usage')
+      .select('id,amount,reason,credits_before,credits_after,created_at')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false })
+      .limit(limit);
+    return (data ?? []).map((r: any) => {
+      const magnitude = Math.abs(Number(r.amount ?? 0));
+      let sign = -1;
+      if (typeof r.credits_before === 'number' && typeof r.credits_after === 'number') {
+        sign = r.credits_after >= r.credits_before ? 1 : -1;
+      } else if (/^(topup|grant|refund|referral|bonus|welcome)/i.test(String(r.reason ?? ''))) {
+        sign = 1;
+      }
+      return {
+        id: String(r.id),
+        delta: sign * magnitude,
+        reason: String(r.reason ?? ''),
+        balanceAfter: typeof r.credits_after === 'number' ? r.credits_after : null,
+        createdAt: String(r.created_at),
+      };
+    });
+  } catch {
+    return [];
+  }
+}
+
 function guessLang(path: string): string {
   if (path.endsWith('.tsx') || path.endsWith('.ts')) return 'typescript';
   if (path.endsWith('.jsx') || path.endsWith('.js')) return 'javascript';

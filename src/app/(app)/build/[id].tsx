@@ -18,15 +18,18 @@ import { useSession } from '@/ctx/session';
 import { supabase } from '@/lib/supabase';
 import {
   applyGeneration,
-  buildPreview,
+  loadMessages,
   planProject,
   planToSpec,
   saveFiles,
+  saveMessage,
+  saveVersion,
   streamGenerate,
   type FileMap,
   type Plan,
   type ProjectType,
 } from '@/lib/api';
+import { thunk, warn } from '@/lib/haptics';
 import { cleanStreamingDisplay, extractProgressLines } from '@/lib/file-parser';
 import { brand, radius, space } from '@/lib/theme';
 
@@ -58,6 +61,9 @@ export default function BuildScreen() {
 
   useEffect(() => {
     if (!id) return;
+    // Project meta/files and chat history load in parallel; the screen unlocks
+    // when the project arrives (history fills in whenever it lands — usually
+    // together, and an empty/failed history read must never block building).
     supabase
       .from('projects')
       .select('id,name,project_type,files')
@@ -71,6 +77,19 @@ export default function BuildScreen() {
         }
         setLoaded(true);
       });
+    loadMessages(id).then((stored) => {
+      if (stored.length === 0) return;
+      setMessages((current) => {
+        // Never clobber a conversation that already started this session
+        // (e.g. the initial-prompt build fired before history arrived).
+        if (current.length > 0) return current;
+        return stored.map((m) =>
+          m.role === 'user'
+            ? { id: m.id, role: 'user' as const, text: m.content }
+            : { id: m.id, role: 'assistant' as const, text: m.content },
+        );
+      });
+    });
     refreshCredits();
   }, [id, refreshCredits]);
 
@@ -80,16 +99,22 @@ export default function BuildScreen() {
       const prompt = promptText.trim();
       setInput('');
       setBusy(true);
+      thunk();
 
       // displayText lets the chat bubble show the user's own words while the
       // model receives a richer spec (used by Plan Mode → build).
       const userMsg: Msg = { id: `u${Date.now()}`, role: 'user', text: (displayText ?? prompt).trim() };
       const aId = `a${Date.now()}`;
       const assistant: Msg = { id: aId, role: 'assistant', text: '', progress: [], streaming: true };
+      // Conversation context for the model: the last few turns BEFORE this one
+      // (same shape the web ChatPanel sends). Persist the user turn immediately
+      // so history survives even if the build is cancelled mid-stream.
+      const history = messages.slice(-12).map((m) => ({ role: m.role, content: m.text }));
       setMessages((m) => [...m, userMsg, assistant]);
+      saveMessage(id, 'user', userMsg.text, { clientId: userMsg.id });
 
       handleRef.current = streamGenerate(
-        { prompt, projectId: id, userId: user.id, projectType: type, files },
+        { prompt, projectId: id, userId: user.id, projectType: type, files, history },
         {
           onText: (full) => {
             const shown = cleanStreamingDisplay(full);
@@ -100,7 +125,7 @@ export default function BuildScreen() {
           },
           onDone: async (full) => {
             try {
-              const { files: next, chatText } = applyGeneration(files, full);
+              const { files: next, chatText, changed } = applyGeneration(files, full);
               // Never persist an empty project. If the generation produced no
               // files (a truncated / errored / chat-only response), keep the
               // existing files and prompt a retry instead of silently saving {} —
@@ -125,6 +150,11 @@ export default function BuildScreen() {
                     : x,
                 ),
               );
+              // Lovable-parity persistence: the assistant turn goes to chat
+              // history, and the new file state becomes a restorable version.
+              // Both best-effort — the build already succeeded.
+              saveMessage(id, 'assistant', chatText || 'Done.', { filesChanged: changed, clientId: aId });
+              saveVersion(id, next, userMsg.text);
             } catch (e) {
               setMessages((m) =>
                 m.map((x) =>
@@ -139,6 +169,7 @@ export default function BuildScreen() {
             }
           },
           onError: (msg) => {
+            warn();
             // Turn the raw "Build failed (402): Not enough credits…" into a calm
             // nudge to top up on the web (where credits are bought via Dodo).
             const outOfCredits = /\b402\b|not enough credits|insufficient/i.test(msg);
@@ -162,7 +193,7 @@ export default function BuildScreen() {
         },
       );
     },
-    [id, user?.id, busy, type, files, refreshCredits],
+    [id, user?.id, busy, type, files, messages, refreshCredits],
   );
 
   // Cancel an in-flight build — abort the stream, unlock the UI, and close out
@@ -241,6 +272,21 @@ export default function BuildScreen() {
                 <Pressable onPress={() => router.push('/account')} hitSlop={8} style={styles.creditsChip}>
                   <Ionicons name="flash" size={12} color={brand.accent} />
                   <Text style={styles.creditsText}>{credits.toLocaleString()}</Text>
+                </Pressable>
+              ) : null}
+              {hasFiles ? (
+                <Pressable
+                  onPress={() =>
+                    Alert.alert('Project tools', undefined, [
+                      { text: '🎨 Themes (free)', onPress: () => router.push(`/themes/${id}`) },
+                      { text: '🕘 Version history', onPress: () => router.push(`/versions/${id}`) },
+                      { text: '📄 View code', onPress: () => router.push(`/code/${id}`) },
+                      { text: 'Cancel', style: 'cancel' },
+                    ])
+                  }
+                  hitSlop={8}
+                >
+                  <Ionicons name="ellipsis-horizontal-circle-outline" size={24} color={brand.textMuted} />
                 </Pressable>
               ) : null}
               {hasFiles ? (
