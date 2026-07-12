@@ -11,7 +11,7 @@ import {
 import { Stack, useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
-import type { PurchasesPackage } from 'react-native-purchases';
+import { PACKAGE_TYPE, PRODUCT_CATEGORY, type PurchasesPackage } from 'react-native-purchases';
 import { useSession } from '@/ctx/session';
 import {
   configureIap,
@@ -21,7 +21,24 @@ import {
   restorePurchases,
 } from '@/lib/iap';
 import { tap, success as hapticSuccess } from '@/lib/haptics';
+import { PLANS, planForProductId, RECOMMENDED_PLAN } from '@/lib/plans';
 import { brand, font, radius, space } from '@/lib/theme';
+
+type BillingPeriod = 'monthly' | 'annual';
+
+// Split the offering: subscription tiers vs one-time credit packs. Prefer the
+// store's product category; fall back to the predefined subscription package
+// types for stores that don't report a category.
+function isSubscription(pkg: PurchasesPackage): boolean {
+  const cat = pkg.product.productCategory;
+  if (cat) return cat === PRODUCT_CATEGORY.SUBSCRIPTION;
+  return pkg.packageType === PACKAGE_TYPE.MONTHLY || pkg.packageType === PACKAGE_TYPE.ANNUAL;
+}
+function matchesPeriod(pkg: PurchasesPackage, period: BillingPeriod): boolean {
+  return period === 'annual'
+    ? pkg.packageType === PACKAGE_TYPE.ANNUAL
+    : pkg.packageType === PACKAGE_TYPE.MONTHLY;
+}
 
 // Pack marketing metadata, matched to a store product by the credit amount in
 // its identifier (e.g. wyber_credits_600). Prices ALWAYS come from the store —
@@ -72,6 +89,23 @@ export default function Paywall() {
   const [loading, setLoading] = useState(true);
   const [packages, setPackages] = useState<PurchasesPackage[]>([]);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [period, setPeriod] = useState<BillingPeriod>('monthly');
+
+  // Subscriptions vs one-time packs, derived from the loaded offering.
+  const subs = useMemo(() => packages.filter(isSubscription), [packages]);
+  const packs = useMemo(
+    () => sortPackages(packages.filter((p) => !isSubscription(p))),
+    [packages],
+  );
+  // Spark is India-only — show it only when the store bills in INR.
+  const storeCurrency =
+    subs[0]?.product.currencyCode ?? packs[0]?.product.currencyCode ?? '';
+  const isINR = storeCurrency === 'INR';
+  // Does an annual base plan exist? (only show the toggle if so)
+  const hasAnnual = useMemo(
+    () => subs.some((p) => p.packageType === PACKAGE_TYPE.ANNUAL),
+    [subs],
+  );
 
   useEffect(() => {
     let active = true;
@@ -79,7 +113,7 @@ export default function Paywall() {
       if (user?.id) await configureIap(user.id);
       const pkgs = await getOfferingPackages();
       if (active) {
-        setPackages(sortPackages(pkgs));
+        setPackages(pkgs);
         setLoading(false);
       }
     })();
@@ -173,58 +207,107 @@ export default function Paywall() {
             </Text>
           </View>
         ) : (
-          packages.map((pkg) => {
-            const meta = metaFor(pkg);
-            const highlighted = pkg.identifier === popularId;
-            const perBuild =
-              meta && pkg.product.price > 0
-                ? `${pkg.product.currencyCode === 'INR' ? '₹' : ''}${(
-                    (pkg.product.price / meta.credits) * 30
-                  ).toFixed(pkg.product.currencyCode === 'INR' ? 0 : 2)} / app build`
-                : null;
-            return (
-              <Pressable
-                key={pkg.identifier}
-                onPress={() => onBuy(pkg)}
-                disabled={busyId !== null}
-                style={({ pressed }) => [
-                  styles.plan,
-                  highlighted && styles.planHighlight,
-                  pressed && styles.planPressed,
-                ]}
-              >
-                {meta?.badge ? (
-                  <View style={[styles.badge, highlighted && styles.badgePopular]}>
-                    <Text style={styles.badgeText}>{meta.badge}</Text>
+          <>
+            {/* Subscriptions — monthly credit plans (mirrors the web tiers) */}
+            {subs.length > 0 ? (
+              <View style={styles.section}>
+                <View style={styles.sectionHead}>
+                  <Text style={styles.sectionTitle}>Subscribe &amp; save</Text>
+                  <Text style={styles.sectionSub}>Fresh credits every month · cancel anytime</Text>
+                </View>
+                {hasAnnual ? (
+                  <View style={styles.periodToggle}>
+                    <PeriodPill label="Monthly" active={period === 'monthly'} onPress={() => setPeriod('monthly')} />
+                    <PeriodPill label="Annual — save" active={period === 'annual'} onPress={() => setPeriod('annual')} />
                   </View>
                 ) : null}
-                <View style={styles.planRow}>
-                  <View style={[styles.planIcon, highlighted && styles.planIconHl]}>
-                    <Ionicons name={meta?.icon ?? 'flash'} size={20} color={highlighted ? brand.onAccent : brand.accent} />
-                  </View>
-                  <View style={styles.planText}>
-                    <Text style={styles.planTitle}>
-                      {meta ? `${meta.credits.toLocaleString()} credits` : pkg.product.title || pkg.identifier}
-                    </Text>
-                    <Text style={styles.planDesc}>
-                      {meta ? `${meta.name} · ${meta.tagline}` : pkg.product.description}
-                    </Text>
-                    {meta ? <Text style={styles.planBuilds}>{meta.builds}</Text> : null}
-                  </View>
-                  <View style={styles.planPriceCol}>
-                    {busyId === pkg.identifier ? (
-                      <ActivityIndicator color={brand.accent} />
-                    ) : (
-                      <>
-                        <Text style={styles.planPrice}>{pkg.product.priceString}</Text>
-                        {perBuild ? <Text style={styles.perBuild}>{perBuild}</Text> : null}
-                      </>
-                    )}
-                  </View>
+                {PLANS.filter((p) => !p.inrOnly || isINR).map((planFacts) => {
+                  const pkg = subs.find(
+                    (s) =>
+                      planForProductId(s.product.identifier)?.id === planFacts.id &&
+                      matchesPeriod(s, period),
+                  );
+                  if (!pkg) return null;
+                  return (
+                    <SubCard
+                      key={planFacts.id}
+                      planFacts={planFacts}
+                      pkg={pkg}
+                      period={period}
+                      highlighted={planFacts.id === RECOMMENDED_PLAN}
+                      busy={busyId !== null}
+                      buying={busyId === pkg.identifier}
+                      onPress={() => onBuy(pkg)}
+                    />
+                  );
+                })}
+              </View>
+            ) : null}
+
+            {/* One-time credit packs */}
+            {packs.length > 0 ? (
+              <View style={styles.section}>
+                <View style={styles.sectionHead}>
+                  <Text style={styles.sectionTitle}>
+                    {subs.length > 0 ? 'Prefer a one-time top-up?' : 'Buy credits'}
+                  </Text>
+                  <Text style={styles.sectionSub}>No subscription · credits never expire</Text>
                 </View>
-              </Pressable>
-            );
-          })
+                {packs.map((pkg) => {
+                  const meta = metaFor(pkg);
+                  const highlighted = pkg.identifier === popularId;
+                  const perBuild =
+                    meta && pkg.product.price > 0
+                      ? `${pkg.product.currencyCode === 'INR' ? '₹' : ''}${(
+                          (pkg.product.price / meta.credits) * 30
+                        ).toFixed(pkg.product.currencyCode === 'INR' ? 0 : 2)} / app build`
+                      : null;
+                  return (
+                    <Pressable
+                      key={pkg.identifier}
+                      onPress={() => onBuy(pkg)}
+                      disabled={busyId !== null}
+                      style={({ pressed }) => [
+                        styles.plan,
+                        highlighted && styles.planHighlight,
+                        pressed && styles.planPressed,
+                      ]}
+                    >
+                      {meta?.badge ? (
+                        <View style={[styles.badge, highlighted && styles.badgePopular]}>
+                          <Text style={styles.badgeText}>{meta.badge}</Text>
+                        </View>
+                      ) : null}
+                      <View style={styles.planRow}>
+                        <View style={[styles.planIcon, highlighted && styles.planIconHl]}>
+                          <Ionicons name={meta?.icon ?? 'flash'} size={20} color={highlighted ? brand.onAccent : brand.accent} />
+                        </View>
+                        <View style={styles.planText}>
+                          <Text style={styles.planTitle}>
+                            {meta ? `${meta.credits.toLocaleString()} credits` : pkg.product.title || pkg.identifier}
+                          </Text>
+                          <Text style={styles.planDesc}>
+                            {meta ? `${meta.name} · ${meta.tagline}` : pkg.product.description}
+                          </Text>
+                          {meta ? <Text style={styles.planBuilds}>{meta.builds}</Text> : null}
+                        </View>
+                        <View style={styles.planPriceCol}>
+                          {busyId === pkg.identifier ? (
+                            <ActivityIndicator color={brand.accent} />
+                          ) : (
+                            <>
+                              <Text style={styles.planPrice}>{pkg.product.priceString}</Text>
+                              {perBuild ? <Text style={styles.perBuild}>{perBuild}</Text> : null}
+                            </>
+                          )}
+                        </View>
+                      </View>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            ) : null}
+          </>
         )}
 
         {/* What credits buy */}
@@ -250,8 +333,9 @@ export default function Paywall() {
         ) : null}
 
         <Text style={styles.fine}>
-          One-time purchase charged to your Google Play account. Credits are added to your WyberAi
-          account and work on web and mobile. No subscription, no auto-renewal.
+          Charged to your Google Play account. Credits work on web and mobile. Subscriptions renew
+          automatically until cancelled in Google Play; one-time packs never expire. Manage or cancel
+          anytime in your Play subscriptions.
         </Text>
       </ScrollView>
     </>
@@ -274,6 +358,77 @@ function Trust({ icon, label }: { icon: keyof typeof Ionicons.glyphMap; label: s
       <Ionicons name={icon} size={16} color={brand.textMuted} />
       <Text style={styles.trustText}>{label}</Text>
     </View>
+  );
+}
+
+function PeriodPill({ label, active, onPress }: { label: string; active: boolean; onPress: () => void }) {
+  return (
+    <Pressable
+      onPress={() => {
+        tap();
+        onPress();
+      }}
+      style={[styles.periodPill, active && styles.periodPillActive]}
+    >
+      <Text style={[styles.periodPillText, active && styles.periodPillTextActive]}>{label}</Text>
+    </Pressable>
+  );
+}
+
+function SubCard({
+  planFacts,
+  pkg,
+  period,
+  highlighted,
+  busy,
+  buying,
+  onPress,
+}: {
+  planFacts: (typeof PLANS)[number];
+  pkg: PurchasesPackage;
+  period: BillingPeriod;
+  highlighted: boolean;
+  busy: boolean;
+  buying: boolean;
+  onPress: () => void;
+}) {
+  // For annual, show the per-month equivalent under the yearly total.
+  const perMonth = period === 'annual' ? pkg.product.pricePerMonthString : null;
+  return (
+    <Pressable
+      onPress={onPress}
+      disabled={busy}
+      style={({ pressed }) => [styles.plan, highlighted && styles.planHighlight, pressed && styles.planPressed]}
+    >
+      {highlighted ? (
+        <View style={[styles.badge, styles.badgePopular]}>
+          <Text style={styles.badgeText}>RECOMMENDED</Text>
+        </View>
+      ) : null}
+      <View style={styles.planRow}>
+        <View style={[styles.planIcon, { backgroundColor: highlighted ? planFacts.color : `${planFacts.color}22` }]}>
+          <Ionicons name={planFacts.icon} size={20} color={highlighted ? brand.onAccent : planFacts.color} />
+        </View>
+        <View style={styles.planText}>
+          <Text style={styles.planTitle}>{planFacts.name}</Text>
+          <Text style={styles.planDesc}>
+            {planFacts.credits.toLocaleString()} credits/mo · {planFacts.tagline}
+          </Text>
+        </View>
+        <View style={styles.planPriceCol}>
+          {buying ? (
+            <ActivityIndicator color={brand.accent} />
+          ) : (
+            <>
+              <Text style={styles.planPrice}>{pkg.product.priceString}</Text>
+              <Text style={styles.perBuild}>
+                {period === 'annual' ? (perMonth ? `${perMonth}/mo` : '/yr') : '/mo'}
+              </Text>
+            </>
+          )}
+        </View>
+      </View>
+    </Pressable>
   );
 }
 
@@ -314,6 +469,28 @@ const styles = StyleSheet.create({
   },
   balanceText: { color: brand.textMuted, fontSize: 12 },
   balanceNum: { color: brand.text, fontWeight: '700' },
+  section: { gap: space.md },
+  sectionHead: { gap: 1, marginTop: space.xs },
+  sectionTitle: { color: brand.text, fontSize: 18, fontFamily: font.display, letterSpacing: -0.3 },
+  sectionSub: { color: brand.textMuted, fontSize: 12.5 },
+  periodToggle: {
+    flexDirection: 'row',
+    backgroundColor: brand.surfaceAlt,
+    borderWidth: 1,
+    borderColor: brand.border,
+    borderRadius: radius.pill,
+    padding: 3,
+    gap: 3,
+  },
+  periodPill: {
+    flex: 1,
+    alignItems: 'center',
+    paddingVertical: 8,
+    borderRadius: radius.pill,
+  },
+  periodPillActive: { backgroundColor: brand.accent },
+  periodPillText: { color: brand.textMuted, fontSize: 13, fontWeight: '700' },
+  periodPillTextActive: { color: brand.onAccent },
   plan: {
     backgroundColor: brand.surface,
     borderColor: brand.border,

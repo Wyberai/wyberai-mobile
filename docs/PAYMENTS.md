@@ -102,24 +102,51 @@ Once Monetize section unlocks and build is live:
    - Click **Activate**
 4. All three must be **Active** before importing to RevenueCat
 
+## 4b. Play Console — create the subscriptions
+
+Play Console → WyberAi app → **Monetize with Play** → **Subscriptions**. Create
+**four** subscriptions; give each a **Monthly** and an **Annual** base plan. The
+subscription IDs are matched in code ([lib/plan-grants.ts](../src/lib/plan-grants.ts)
+server-side and [lib/plans.ts](../src/lib/plans.ts) in the app) — **use these exact IDs**:
+
+| Subscription ID | Plan | Credits/mo | USD mo / yr | INR mo / yr | Notes |
+| --------------- | ------- | ---------- | ----------- | ------------ | ----- |
+| `wyber_spark`   | Spark   | 50    | $6 / $60   | ₹499 / ₹4,788   | **India-only** — set INR price only |
+| `wyber_starter` | Starter | 150   | $29 / $276 | ₹1,499 / ₹14,388 | |
+| `wyber_builder` | Builder | 500   | $79 / $756 | ₹3,999 / ₹38,388 | Recommended tier |
+| `wyber_pro`     | Pro     | 1,500 | $199 / $1,908 | ₹9,999 / ₹95,988 | |
+
+- Prices mirror the web ([plans.ts](../../wyberai/src/lib/plans.ts)) so mobile and web match.
+  Annual = 12× the annual-rate monthly (e.g. Builder annual rate is $63/mo → $756/yr).
+- Base-plan IDs: name them `monthly` and `annual` (RevenueCat reads them as
+  `wyber_builder:monthly` / `wyber_builder:annual`).
+- **Spark is India-only:** the app shows it only when the store currency is INR, so
+  give `wyber_spark` an INR price and leave other regions unpriced/unavailable.
+- Activate all base plans.
+
 ## 5. RevenueCat — import products
 
 1. RevenueCat dashboard → **Product Catalog** → **Products**
 2. Click the import icon (or **+ New** → **Import Products**)
 3. Select **Google Play**
-4. Select all three products (`wyber_credits_200/600/2000`) and confirm import
+4. Import **all** — the 3 consumables (`wyber_credits_200/600/2000`) **and** the 4
+   subscriptions (`wyber_spark/starter/builder/pro`, both base plans each)
 
 ## 6. RevenueCat — create offering
 
 1. RevenueCat → **Product Catalog** → **Offerings**
 2. Click **default** (or create if missing)
-3. Add all three imported products as packages:
-   - For each product, click **+ Add package**
-   - Select the product
-   - Set identifier to match product ID (e.g., `wyber_credits_200`)
+3. Add packages:
+   - **Consumables:** add the 3 packs (identifier = product ID, e.g. `wyber_credits_200`)
+   - **Subscriptions:** add each tier's **monthly** and **annual** base plan. Use the
+     predefined package types **Monthly** and **Annual** so the app's billing toggle
+     picks them up (the paywall keys off `PACKAGE_TYPE.MONTHLY` / `ANNUAL`).
 4. Save
 
-**Skip entitlements:** consumables grant credits via webhook, not feature gates.
+**Entitlements:** not required — both packs and subscription grants are applied by the
+webhook (which sets the plan + credits on the profile), not by RevenueCat entitlement
+gates. You may still create a `pro` entitlement if you want RevenueCat's dashboards to
+track active subscribers, but the app doesn't depend on it.
 
 ## 7. RevenueCat — webhooks
 
@@ -214,15 +241,25 @@ Once the basic purchase test (step 10) passes, run this full smoke test on the d
 - [ ] Refresh preview → theme persists
 - [ ] No credits charged (0-credit feature)
 
-### Paywall
-- [ ] "Get credits" → paywall shows 3 packs, big-first (Studio → Builder → Starter)
+### Paywall — subscriptions
+- [ ] "Subscribe & save" section shows above the packs
+- [ ] Monthly/Annual toggle switches the prices (annual shows a per-month equivalent)
+- [ ] 4 tiers on an INR device (Spark/Starter/Builder/Pro); **Spark hidden** on a USD device
+- [ ] Builder card is highlighted (RECOMMENDED)
+- [ ] Prices are localized (₹ on an India account, $ on a US account) — never web prices
+- [ ] Credits/mo per tier match web (50 / 150 / 500 / 1,500)
+- [ ] Subscribe → Play sheet → on success, balance increases by the tier's credits
+- [ ] Profile plan updates (check via web dashboard or Account)
+
+### Paywall — one-time packs
+- [ ] "Prefer a one-time top-up?" section shows the 3 packs, big-first
 - [ ] Packs have badges (BEST VALUE, MOST POPULAR)
-- [ ] Prices show in local currency (USD or INR based on IP)
+- [ ] Prices show in local currency (USD or INR)
 - [ ] "What credits buy" card lists build/edit costs
-- [ ] "Powered by Play Billing" trust row visible
+- [ ] Play Billing trust row visible
 - [ ] Buy 200 pack → purchase completes within 5s
-- [ ] Balance updates immediately in paywall
-- [ ] Close paywall → new balance reflects everywhere
+- [ ] Balance updates immediately; close paywall → new balance everywhere
+- [ ] Idempotency: re-deliver the webhook event → balance does NOT double
 
 ### Onboarding (first-run only)
 - [ ] First app launch shows 3-slide carousel
@@ -242,6 +279,14 @@ Once the basic purchase test (step 10) passes, run this full smoke test on the d
 
 ## Notes
 
-- Packs are one-time consumables — the paywall already says "no subscription, no auto-renewal" (Play policy-clean).
-- The webhook also supports subscription products (`REVENUECAT_PRODUCT_PRO_*`) if a Pro plan is ever sold in-app; unused today.
-- iOS later: create the same products in App Store Connect, set `EXPO_PUBLIC_REVENUECAT_IOS_KEY`, everything else is shared.
+- **Two purchase types:** consumable credit packs (one-time, never expire) **and**
+  subscription tiers (recurring monthly credits, mirror the web plans). Both grant via
+  the same RevenueCat webhook, which now mirrors the Dodo grant model exactly
+  ([plan-grants.ts](../../wyberai/src/lib/plan-grants.ts)): credits are **added** (never
+  set, so packs survive a subscribe), and a lapse drops to free but keeps the balance.
+- **Pricing parity:** the app never shows web prices — it renders the store's localized
+  `priceString`, so India sees ₹, US sees $. Set the store prices to match the web
+  tiers (table in §4b) so there's no cross-rail price gap.
+- **Spark is India-only** — the paywall shows it only when the store currency is INR.
+- iOS later: create the same products (packs + subscriptions) in App Store Connect, set
+  `EXPO_PUBLIC_REVENUECAT_IOS_KEY`; the webhook, plans, and paywall are all shared.
