@@ -10,10 +10,28 @@ The entire purchase pipeline is **already built and shipped in code**:
 What remains is **dashboard configuration only**. Do these in order; the app needs
 zero code changes to go live.
 
+## 0. If you don't see "Monetize" at all
+
+Two gates, in order:
+
+1. **Merchant account.** Play Console (account level) → **Setup → Payments
+   profile**. The developer account must be identity-verified AND linked to a
+   Google Payments merchant account before monetization unlocks. If this page
+   shows "set up a merchant account" or verification pending — finish that
+   first; nothing else works until it's done.
+2. **Nav level.** The section only exists *inside the app*: select the WyberAi
+   app first, then in the left sidebar scroll down to **"Monetize with Play"**
+   (below "Grow"). It is not on the account home page.
+
+The app side is never the blocker: every CI `.aab` ships Google's billing
+library, and `com.android.vending.BILLING` is also declared explicitly in
+`app.json`. You can confirm on the internal-testing build page, which lists
+the build's required permissions.
+
 ## 1. Play Console — create the products
 
-Play Console → WyberAi app → Monetize → Products → **In-app products** (NOT
-subscriptions). Create three **consumable** managed products:
+Play Console → WyberAi app → **Monetize with Play** → Products → **In-app
+products** (NOT subscriptions). Create three **consumable** managed products:
 
 | Product ID           | Name                | Suggested price |
 | -------------------- | ------------------- | --------------- |
