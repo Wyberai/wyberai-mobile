@@ -28,70 +28,220 @@ library, and `com.android.vending.BILLING` is also declared explicitly in
 `app.json`. You can confirm on the internal-testing build page, which lists
 the build's required permissions.
 
-## 1. Play Console — create the products
+## 1. Service credentials (do first — starts the 36h validation clock)
 
-Play Console → WyberAi app → **Monetize with Play** → Products → **In-app
-products** (NOT subscriptions). Create three **consumable** managed products:
+This step enables RevenueCat to read products and purchases from Play Console.
+
+**A. Google Cloud Console setup:**
+
+1. Open [Google Cloud Console](https://console.cloud.google.com)
+2. Select or create a Google Cloud project
+3. Enable these three APIs:
+   - Google Play Android Developer API
+   - Google Play Developer Reporting API
+   - Cloud Pub/Sub API
+4. Go to **IAM & Admin → Service Accounts** → **Create Service Account**
+   - Name: `revenuecat-service-account` (or any name)
+   - Click **Create and continue**
+5. Grant these roles:
+   - **Pub/Sub Admin** (or Pub/Sub Editor if you encounter permission errors)
+   - **Monitoring Viewer**
+6. Click **Create and continue**, then **Done**
+
+**B. Create and download JSON key:**
+
+1. In **IAM & Admin → Service Accounts**, click on the service account you just created
+2. Go to the **Keys** tab → **Add Key** → **Create new key**
+3. Select **JSON** format and download the file
+4. Save this file — you'll upload it to RevenueCat and Play Console
+
+**⚠️ Important:** RevenueCat notes that credentials can take up to 36 hours to validate after creation. Workaround: after uploading to RevenueCat (step 3), edit and save any product description in Play Console's **Monetize with Play** section to force a sync.
+
+## 2. Play Console — invite service account
+
+1. Play Console → WyberAi app → **Settings** → **Users and permissions**
+2. Click **Invite user** and enter the service account email (from the JSON key file, looks like `revenuecat-service-account@project-id.iam.gserviceaccount.com`)
+3. Grant these account permissions:
+   - View app information and download bulk reports (read-only)
+   - View financial data, orders, and cancellation survey responses
+   - **Manage orders and subscriptions** (critical for RevenueCat)
+
+## 3. RevenueCat — create app configuration
+
+1. RevenueCat dashboard → **Projects** dropdown → select your WyberAi project
+2. Look for the checklist card **"Create a real app configuration"** (or go to **Apps** → **Add an app config**)
+3. Select **Play Store**
+4. Enter:
+   - App name: `WyberAi`
+   - Package name: `com.wyberai.app` (from `app.json`)
+5. Upload the JSON key file you downloaded in step 1B
+6. Click **Save**
+
+**After saving, you may see a screen "Let's get WyberAi ready!" suggesting subscriptions and entitlements.** ⚠️ **IGNORE THIS.** Close the dialog or navigate away — we'll create consumable products in Play Console instead, then import them.
+
+Note: credentials validation can take up to 36h. The workaround (edit a product description in Play Console's Monetize section) can speed this up.
+
+## 4. Play Console — create consumable products
+
+**Prerequisites:** Your `.aab` build must be uploaded to Play Console on any track (internal testing counts). Check: WyberAi app → **Testing → Internal testing** shows a recent build.
+
+Once Monetize section unlocks and build is live:
+
+1. Play Console → WyberAi app → **Monetize with Play** → **Products** → **In-app products** (NOT subscriptions)
+2. Click **Create product** and create three **consumable** managed products:
 
 | Product ID           | Name                | Suggested price |
 | -------------------- | ------------------- | --------------- |
-| `wyber_credits_200`  | 200 credits         | ₹499 / $9       |
-| `wyber_credits_600`  | 600 credits         | ₹1,299 / $19    |
-| `wyber_credits_2000` | 2000 credits        | ₹3,499 / $49    |
+| `wyber_credits_200`  | 200 credits         | $9 / ₹499       |
+| `wyber_credits_600`  | 600 credits         | $19 / ₹1,299    |
+| `wyber_credits_2000` | 2000 credits        | $49 / ₹3,499    |
 
-The paywall matches packs by the number in the id (`/200/`, `/600/`, `/2000/`),
-so any id containing those numbers works — the ones above are canonical.
-Activate all three.
+3. For each product:
+   - Set price in both USD and INR
+   - Description: "One-time consumable credit pack — no subscription, no auto-renewal"
+   - Click **Activate**
+4. All three must be **Active** before importing to RevenueCat
 
-## 2. RevenueCat — connect Play + define the offering
+## 5. RevenueCat — import products
 
-1. RevenueCat dashboard → create Android app (package `com.wyberai.app` — check
-   `app.json` for the exact applicationId) and upload the Play service-account
-   JSON (Play Console → API access).
-2. Products → import the three Play products.
-3. Offerings → `default` offering → add all three products as packages
-   (identifiers can mirror the product ids). The app shows whatever the current
-   offering contains.
-4. Copy the **public Android SDK key** (goog_…).
+1. RevenueCat dashboard → **Product Catalog** → **Products**
+2. Click the import icon (or **+ New** → **Import Products**)
+3. Select **Google Play**
+4. Select all three products (`wyber_credits_200/600/2000`) and confirm import
 
-## 3. Env vars
+## 6. RevenueCat — create offering
 
-**App build** (GitHub Actions secret / `.env` used at build time):
+1. RevenueCat → **Product Catalog** → **Offerings**
+2. Click **default** (or create if missing)
+3. Add all three imported products as packages:
+   - For each product, click **+ Add package**
+   - Select the product
+   - Set identifier to match product ID (e.g., `wyber_credits_200`)
+4. Save
+
+**Skip entitlements:** consumables grant credits via webhook, not feature gates.
+
+## 7. RevenueCat — webhooks
+
+1. RevenueCat → **Integrations** → **Webhooks**
+2. Click **+ New webhook**
+3. Set:
+   - URL: `https://wyberai.com/api/revenuecat/webhook`
+   - Authorization header: `Authorization: Bearer <random-secret>`
+     - Generate a long random string (e.g., 32+ chars)
+4. Save and copy the secret to Vercel (step 8)
+
+## 8. Env vars
+
+**Vercel (wyberai web, prod):**
 
 ```
-EXPO_PUBLIC_REVENUECAT_ANDROID_KEY=goog_xxx
-```
-
-**Vercel (wyberai web, prod)** — the webhook needs the product-id → credits map:
-
-```
-REVENUECAT_WEBHOOK_SECRET=<any long random string>
+REVENUECAT_WEBHOOK_SECRET=<the random secret from step 7>
 REVENUECAT_TOPUP_200=wyber_credits_200
 REVENUECAT_TOPUP_600=wyber_credits_600
 REVENUECAT_TOPUP_2000=wyber_credits_2000
 ```
 
-## 4. RevenueCat webhook
+**GitHub Actions (wyberai-mobile):**
 
-RevenueCat → Integrations → Webhooks:
+1. RevenueCat → **Project settings** → **API keys**
+2. Copy the **public Android key** (looks like `goog_...`)
+3. Add GitHub repo variable (not secret): `EXPO_PUBLIC_REVENUECAT_ANDROID_KEY` = the key you copied
 
-- URL: `https://wyberai.com/api/revenuecat/webhook`
-- Authorization header value: the exact `REVENUECAT_WEBHOOK_SECRET` you set above.
+## 9. CI build
 
-## 5. Verify end-to-end (license tester — no real money)
+1. Trigger a new CI build in wyberai-mobile (the next build will include the real RevenueCat key)
+2. Wait for the build to complete and download the `.aab` artifact
+3. Upload to Play Console: **Internal testing** → **Create new release** → upload `.aab`
 
-1. Play Console → Settings → License testing → add your Google account.
-2. Install an internal-testing build, sign in, open **Get credits**.
-3. Buy the 200 pack with the test card — balance should tick up within ~5s.
-4. Check the purchase row appears under Account → Credit activity.
-5. Re-deliver the same webhook event from the RevenueCat dashboard → balance
-   must NOT double (idempotency).
+## 10. Verify end-to-end (license tester — no real money)
+
+1. Play Console → WyberAi app → **Settings** → **License testing**
+2. Add your Google account as a tester
+3. Install the internal-testing build on a real device (emulator won't work with real Play Billing)
+4. Sign in and open **Account → Get credits**
+5. Buy the 200 pack — balance should tick up **within ~5 seconds**
+6. Check **Account → Credit activity** — purchase row should appear
+7. **Idempotency check:** RevenueCat dashboard → **Webhooks** → find the purchase event → click **Re-deliver**
+   - Balance must **NOT double** (webhook is idempotent)
+
+## 11. Device test pass — comprehensive feature verification
+
+Once the basic purchase test (step 10) passes, run this full smoke test on the device to verify all v2 features are wired up:
+
+### Home Tab
+- [ ] Hero prompt box loads and is tappable
+- [ ] Starter template chips render (6 visible)
+- [ ] Tap a chip creates a new project with that prompt
+- [ ] "Continue building" card shows last 3 projects (if any exist)
+- [ ] Community gallery loads (projects with vote counts + thumbnails)
+- [ ] Tapping a gallery project opens the build screen with live preview
+
+### Projects Tab
+- [ ] List shows all projects, newest first
+- [ ] Tap project → opens builder with chat + preview tabs
+- [ ] Rename project via long-press
+- [ ] Delete project via long-press → confirm dialog
+
+### Account Tab
+- [ ] Sign-in status displays (email + avatar)
+- [ ] Credit balance shows current balance
+- [ ] "Get credits" button → paywall modal
+- [ ] Credit activity feed shows last 12 transactions (purchases green, spends muted)
+- [ ] Each row has icon + amount + timestamp
+- [ ] Activity row from step 10 purchase appears with green checkmark
+
+### Chat + Build
+- [ ] Chat persists across app restart (close app, reopen, messages still there)
+- [ ] Type message → tap Build → streams response as before
+- [ ] Out-of-credits deep-links to paywall (simulate by setting credits to 0 in DB)
+
+### Versions Tab (tap toolbox icon in builder)
+- [ ] Version list shows snapshots, newest first
+- [ ] Tap a version → "Restore version?" confirmation
+- [ ] Confirm restore → file tree updates to old version
+- [ ] Chat still works with restored version
+
+### Code Viewer (tap code icon in builder)
+- [ ] File tree shows all files, grouped by folder
+- [ ] Tap file → monospace viewer opens with line numbers
+- [ ] Scroll works without crashing
+
+### Themes (tap palette icon in builder)
+- [ ] Theme grid loads 30+ palettes (or as many exist)
+- [ ] Tap a palette → live preview + preview file updates
+- [ ] Tap again to apply → theme saved
+- [ ] Refresh preview → theme persists
+- [ ] No credits charged (0-credit feature)
+
+### Paywall
+- [ ] "Get credits" → paywall shows 3 packs, big-first (Studio → Builder → Starter)
+- [ ] Packs have badges (BEST VALUE, MOST POPULAR)
+- [ ] Prices show in local currency (USD or INR based on IP)
+- [ ] "What credits buy" card lists build/edit costs
+- [ ] "Powered by Play Billing" trust row visible
+- [ ] Buy 200 pack → purchase completes within 5s
+- [ ] Balance updates immediately in paywall
+- [ ] Close paywall → new balance reflects everywhere
+
+### Onboarding (first-run only)
+- [ ] First app launch shows 3-slide carousel
+- [ ] Slide 1: "Ship apps with AI" + WyberAi wordmark
+- [ ] Slide 2: "Preview in real time" + screenshot
+- [ ] Slide 3: "Same prompt, web & mobile" + platform parity claim
+- [ ] Skip button always visible
+- [ ] Swipe to next slide works
+- [ ] Slide 3 "Get started" → closes carousel, goes to Home
+
+### Edge Cases
+- [ ] App survives background/foreground cycle (auth session doesn't reset)
+- [ ] No console errors in dev tools
+- [ ] Network error in chat → error message shown, retry works
+- [ ] Offline (toggle airplane mode) → graceful error, not frozen
+- [ ] Low credits (e.g., 10 left) → still able to build if below cost
 
 ## Notes
 
-- Packs are one-time consumables — the fine print in the paywall already says
-  "no subscription, no auto-renewal" (Play policy-clean).
-- The webhook also supports subscription products (`REVENUECAT_PRODUCT_PRO_*`)
-  if a Pro plan is ever sold in-app; unused today.
-- iOS later: create the same products in App Store Connect, set
-  `EXPO_PUBLIC_REVENUECAT_IOS_KEY`, everything else is shared.
+- Packs are one-time consumables — the paywall already says "no subscription, no auto-renewal" (Play policy-clean).
+- The webhook also supports subscription products (`REVENUECAT_PRODUCT_PRO_*`) if a Pro plan is ever sold in-app; unused today.
+- iOS later: create the same products in App Store Connect, set `EXPO_PUBLIC_REVENUECAT_IOS_KEY`, everything else is shared.

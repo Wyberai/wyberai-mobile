@@ -1,19 +1,29 @@
-# WyberAi — Companion App (Android-first)
+# WyberAi — Companion App (Android-first, v2+)
 
-The official WyberAi mobile app. Sign in, see your projects, open your live
-apps, track build/publish/referral activity, and get push notifications — all
-from your phone. Built with **Expo SDK 57** (latest stable) + Expo Router.
+The official WyberAi mobile app — feature-parity with the web editor. Build,
+chat, preview, publish, and monetize apps directly from your phone. 
+Built with **Expo SDK 57** (latest stable) + Expo Router.
+
+**v2 features:** persistent chat history, version snapshots + restore, code
+viewer, 0-credit themes, conversion-grade paywall, community gallery,
+first-launch onboarding, haptic feedback, and in-app credit purchases via
+Google Play Billing.
 
 Backed by the **same Supabase project** as wyberai.com, so auth and data are
-shared. The app reads `projects`, `profiles`, and `notifications` directly
+shared. The app reads `projects`, `profiles`, and related tables directly
 through Row-Level Security (a user only ever sees their own rows).
+RevenueCat integration handles receipt validation + webhook-driven credit grants.
 
 ## Stack
 
-- Expo SDK 57 · React Native 0.86 · React 19
-- Expo Router (file-based, typed routes)
-- Supabase Auth (email OTP) + AsyncStorage session persistence
-- expo-notifications (Expo push)
+- **Runtime:** Expo SDK 57 · React Native 0.86 · React 19
+- **Routing:** Expo Router (file-based, typed routes)
+- **Auth:** Supabase Auth (email OTP) + AsyncStorage session persistence
+- **DB:** Supabase (direct RLS queries + webhooks)
+- **Payments:** RevenueCat (receipt validation) + Google Play Billing (in-app consumables)
+- **UI:** React Native `StyleSheet` + shared brand tokens (`lib/theme.ts`), expo-linear-gradient (backgrounds + overlays), General Sans display font (self-hosted)
+- **Haptics:** expo-haptics (tap/success/warn feedback)
+- **Push:** Expo push notifications (optional — dev builds only)
 
 ## Run it (instant, no build)
 
@@ -30,20 +40,33 @@ work in Expo Go; **push notifications require a dev/preview build** (see below).
 ```
 src/
   app/
-    _layout.tsx           # Session provider + auth-gated Stack.Protected routing
-    sign-in.tsx           # Email OTP (send code → verify code)
+    _layout.tsx             # Onboarding guard (AsyncStorage wyber:onboarded)
+    sign-in.tsx             # Email OTP (send code → verify code)
     (app)/
-      _layout.tsx         # Bottom tabs (Projects · Activity · Account)
-      index.tsx           # Projects list (RLS query, pull-to-refresh)
-      notifications.tsx   # Activity feed (auto marks read)
-      account.tsx         # Credits, plan, quick links, sign out
-      project/[id].tsx    # Detail — open live app, share, metadata
-  ctx/session.tsx         # Supabase session context + push registration
+      _layout.tsx           # Bottom tabs (Home · Projects · Activity · Account)
+      index.tsx             # Home: hero prompt + template chips + community gallery
+      projects.tsx          # Projects list (RLS query, pull-to-refresh, rename/delete)
+      activity.tsx          # Activity feed (auto marks read)
+      account.tsx           # Credits, plan, quick links, sign out, credit activity
+      build/[id]/
+        index.tsx           # Chat + builder (streaming edits via /api/generate)
+        preview.tsx         # Web + Mobile (RN-web) inline previews
+        publish.tsx         # Publish modal (RLS gates, credit charge)
+      paywall.tsx           # Get credits: 3 packs (200/600/2000), Play Billing
+      themes/[id].tsx       # 30+ palette picker (0-credit, instant preview)
+      versions/[id].tsx     # Version snapshots (newest-first, restore confirm)
+      code/[id].tsx         # File viewer (folder-grouped, monospace, line #s)
+  ctx/session.tsx           # Supabase session context + push registration + credits
   lib/
-    supabase.ts           # Client (public prod values baked in)
-    push.ts               # Expo push token registration → device_tokens
-    theme.ts              # WyberAi dark brand tokens (#0EA5E9)
-    types.ts              # Project / Profile / Notification shapes
+    supabase.ts             # SSR-safe client (typeof window guard for Node pre-render)
+    iap.ts                  # RevenueCat: configure, purchase, restore
+    api.ts                  # Wyberai endpoints: create/chat/build/publish/versions/messages/themes
+    haptics.ts              # Fire-and-forget haptic feedback (tap, success, warn)
+    theme.ts                # WyberAi dark brand tokens (#0EA5E9) + 30 design palettes
+    types.ts                # Project / Profile / Message / Version / Theme shapes
+  components/
+    Onboarding.tsx          # 3-slide first-launch carousel (AsyncStorage gate)
+    ErrorBoundary.tsx       # Crash guard (isolated builder + preview)
 ```
 
 ## Build an Android APK (no Android Studio needed)
