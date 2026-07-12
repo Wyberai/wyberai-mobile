@@ -1,11 +1,13 @@
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { View } from 'react-native';
 import { useFonts } from 'expo-font';
 import * as SplashScreen from 'expo-splash-screen';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { SessionProvider, useSession } from '@/ctx/session';
 import { Spinner } from '@/components/Spinner';
+import { Onboarding, ONBOARDED_KEY } from '@/components/Onboarding';
 import { brand } from '@/lib/theme';
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
@@ -32,8 +34,17 @@ export default function RootLayout() {
 
 function RootNavigator() {
   const { session, isLoading } = useSession();
+  // First-launch tour: null = still reading the flag (blocks nothing visible —
+  // it resolves in ms, well before auth). Only shown signed-out.
+  const [onboarded, setOnboarded] = useState<boolean | null>(null);
 
-  if (isLoading) {
+  useEffect(() => {
+    AsyncStorage.getItem(ONBOARDED_KEY)
+      .then((v) => setOnboarded(v === '1'))
+      .catch(() => setOnboarded(true)); // storage broken → never trap the user in the tour
+  }, []);
+
+  if (isLoading || onboarded === null) {
     return (
       <View
         style={{
@@ -46,6 +57,10 @@ function RootNavigator() {
         <Spinner />
       </View>
     );
+  }
+
+  if (!session && !onboarded) {
+    return <Onboarding onDone={() => setOnboarded(true)} />;
   }
 
   return (

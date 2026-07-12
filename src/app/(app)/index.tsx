@@ -8,6 +8,7 @@ import {
   View,
 } from 'react-native';
 import { useRouter, useFocusEffect } from 'expo-router';
+import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { useSession } from '@/ctx/session';
 import { Spinner } from '@/components/Spinner';
@@ -103,6 +104,14 @@ function ProjectCard({ project, onPress }: { project: Project; onPress: () => vo
       onPress={onPress}
       style={({ pressed }) => [styles.card, pressed && styles.cardPressed]}
     >
+      {project.thumbnail_url ? (
+        <Image
+          source={{ uri: project.thumbnail_url }}
+          style={styles.cardThumb}
+          contentFit="cover"
+          transition={150}
+        />
+      ) : null}
       <View style={styles.cardHeader}>
         <Text style={styles.cardTitle} numberOfLines={1}>
           {project.name || 'Untitled'}
@@ -165,6 +174,13 @@ const styles = StyleSheet.create({
     gap: space.sm,
   },
   cardPressed: { backgroundColor: brand.surfaceAlt },
+  cardThumb: {
+    width: '100%',
+    height: 120,
+    borderRadius: radius.md,
+    backgroundColor: brand.surfaceAlt,
+    marginBottom: space.xs,
+  },
   cardHeader: { flexDirection: 'row', alignItems: 'center', gap: space.sm },
   cardTitle: { color: brand.text, fontSize: 17, fontWeight: '700', flex: 1 },
   cardDesc: { color: brand.textMuted, fontSize: 14, lineHeight: 19 },
