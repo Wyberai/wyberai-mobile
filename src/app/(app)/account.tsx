@@ -13,7 +13,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { useSession } from '@/ctx/session';
 import { supabase } from '@/lib/supabase';
-import { deleteAccount } from '@/lib/api';
+import { deleteAccount, fetchCreditHistory, type CreditEvent } from '@/lib/api';
 import { Spinner } from '@/components/Spinner';
 import type { Profile } from '@/lib/types';
 import { brand, font, radius, space } from '@/lib/theme';
@@ -24,6 +24,7 @@ export default function AccountScreen() {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
   const [deleting, setDeleting] = useState(false);
+  const [activity, setActivity] = useState<CreditEvent[]>([]);
 
   function onDeleteAccount() {
     Alert.alert(
@@ -60,6 +61,7 @@ export default function AccountScreen() {
         setProfile((data as Profile) ?? null);
         setLoading(false);
       });
+    fetchCreditHistory(12).then(setActivity);
   }, [user]);
 
   // Refetch every time the Account tab regains focus, so credits topped up on
@@ -127,6 +129,18 @@ export default function AccountScreen() {
         />
       </View>
 
+      {activity.length > 0 ? (
+        <View style={styles.group}>
+          <Text style={styles.activityHeader}>Credit activity</Text>
+          {activity.map((ev, i) => (
+            <View key={ev.id}>
+              {i > 0 ? <View style={styles.divider} /> : null}
+              <ActivityRow ev={ev} />
+            </View>
+          ))}
+        </View>
+      ) : null}
+
       <Text style={styles.disclosure}>
         Apps are generated with AI and published by their creators. WyberAi reviews reported content
         and acts within 24 hours.
@@ -189,6 +203,38 @@ function LinkRow({
       <Text style={styles.linkLabel}>{label}</Text>
       <Ionicons name="chevron-forward" size={18} color={brand.textFaint} />
     </Pressable>
+  );
+}
+
+// "topup:play:GPA.1234…" → "Credit pack purchase"; "build" → "App build"; etc.
+function describeReason(reason: string): { label: string; icon: keyof typeof Ionicons.glyphMap } {
+  const r = reason.toLowerCase();
+  if (r.startsWith('topup')) return { label: 'Credit pack purchase', icon: 'card-outline' };
+  if (r.includes('refund')) return { label: 'Refund', icon: 'arrow-undo-outline' };
+  if (r.includes('referral')) return { label: 'Referral bonus', icon: 'gift-outline' };
+  if (r.includes('plan')) return { label: 'Plan Mode', icon: 'map-outline' };
+  if (r.includes('edit')) return { label: 'App edit', icon: 'create-outline' };
+  if (r.includes('build') || r.includes('generat')) return { label: 'App build', icon: 'sparkles-outline' };
+  return { label: reason.slice(0, 40) || 'Credit change', icon: 'swap-horizontal-outline' };
+}
+
+function ActivityRow({ ev }: { ev: CreditEvent }) {
+  const { label, icon } = describeReason(ev.reason);
+  const positive = ev.delta > 0;
+  const date = new Date(ev.createdAt);
+  const when = `${date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`;
+  return (
+    <View style={styles.activityRow}>
+      <Ionicons name={icon} size={18} color={positive ? brand.success : brand.textMuted} />
+      <View style={styles.activityText}>
+        <Text style={styles.activityLabel}>{label}</Text>
+        <Text style={styles.activityWhen}>{when}</Text>
+      </View>
+      <Text style={[styles.activityDelta, positive ? styles.deltaPlus : styles.deltaMinus]}>
+        {positive ? '+' : '−'}
+        {Math.abs(ev.delta).toLocaleString()}
+      </Text>
+    </View>
   );
 }
 
@@ -255,4 +301,21 @@ const styles = StyleSheet.create({
     marginTop: -space.sm,
   },
   version: { color: brand.textFaint, fontSize: 12, textAlign: 'center', marginTop: space.sm },
+  activityHeader: {
+    color: brand.textFaint,
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 1,
+    textTransform: 'uppercase',
+    paddingHorizontal: space.lg,
+    paddingTop: space.md,
+    paddingBottom: space.xs,
+  },
+  activityRow: { flexDirection: 'row', alignItems: 'center', gap: space.md, paddingHorizontal: space.lg, paddingVertical: space.md },
+  activityText: { flex: 1, gap: 1 },
+  activityLabel: { color: brand.text, fontSize: 14, fontWeight: '500' },
+  activityWhen: { color: brand.textFaint, fontSize: 11.5 },
+  activityDelta: { fontSize: 14, fontWeight: '800' },
+  deltaPlus: { color: brand.success },
+  deltaMinus: { color: brand.textMuted },
 });
