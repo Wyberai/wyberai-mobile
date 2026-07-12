@@ -122,7 +122,10 @@ jobs:
           ORG_GRADLE_PROJECT_WYBER_UPLOAD_STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           ORG_GRADLE_PROJECT_WYBER_UPLOAD_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ORG_GRADLE_PROJECT_WYBER_UPLOAD_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
-        run: ./gradlew :app:bundleRelease --no-daemon --stacktrace
+        # bundleRelease → .aab (for Play). assembleRelease → installable .apk(s)
+        # you can sideload straight to a phone (USB / download) for fast testing —
+        # the .aab is a Play-only format and can't be installed directly.
+        run: ./gradlew :app:bundleRelease :app:assembleRelease --no-daemon --stacktrace
 
       - name: Verify AAB is signed
         run: |
@@ -134,12 +137,21 @@ jobs:
           else
             echo "::warning::Could not confirm a signature block — verify before uploading."
           fi
+          echo "--- APK(s) for direct install ---"; ls -la android/app/build/outputs/apk/release/ || true
 
-      - name: Upload AAB artifact
+      - name: Upload AAB artifact (for Google Play)
         uses: actions/upload-artifact@v4
         with:
           name: wyberai-android-aab
           path: android/app/build/outputs/bundle/release/*.aab
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload APK artifact (sideload to phone)
+        uses: actions/upload-artifact@v4
+        with:
+          name: wyberai-android-apk
+          path: android/app/build/outputs/apk/release/*.apk
           if-no-files-found: error
           retention-days: 14
 
