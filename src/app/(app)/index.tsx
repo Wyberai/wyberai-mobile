@@ -11,7 +11,8 @@ import { useRouter, useFocusEffect } from 'expo-router';
 import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { useSession } from '@/ctx/session';
-import { Spinner } from '@/components/Spinner';
+import { FadeInUp, staggerDelay } from '@/components/FadeInUp';
+import { SkeletonProjectCard } from '@/components/Skeleton';
 import { supabase } from '@/lib/supabase';
 import { projectUrl, type Project } from '@/lib/types';
 import { brand, radius, space } from '@/lib/theme';
@@ -59,8 +60,10 @@ export default function ProjectsScreen() {
 
   if (loading) {
     return (
-      <View style={styles.center}>
-        <Spinner />
+      <View style={styles.listContent}>
+        {[0, 1, 2, 3].map((i) => (
+          <SkeletonProjectCard key={i} />
+        ))}
       </View>
     );
   }
@@ -90,8 +93,10 @@ export default function ProjectsScreen() {
           ) : null}
         </View>
       }
-      renderItem={({ item }) => (
-        <ProjectCard project={item} onPress={() => router.push(`/project/${item.id}`)} />
+      renderItem={({ item, index }) => (
+        <FadeInUp delay={staggerDelay(index)}>
+          <ProjectCard project={item} onPress={() => router.push(`/project/${item.id}`)} />
+        </FadeInUp>
       )}
     />
   );

@@ -31,6 +31,7 @@ import {
 } from '@/lib/api';
 import { thunk, warn } from '@/lib/haptics';
 import { cleanStreamingDisplay, extractProgressLines } from '@/lib/file-parser';
+import { BottomSheet } from '@/components/BottomSheet';
 import { brand, radius, space } from '@/lib/theme';
 
 type Msg =
@@ -58,6 +59,7 @@ export default function BuildScreen() {
   const handleRef = useRef<{ abort: () => void } | null>(null);
   const firedInitial = useRef(false);
   const listRef = useRef<FlatList<Msg>>(null);
+  const [toolsOpen, setToolsOpen] = useState(false);
 
   useEffect(() => {
     if (!id) return;
@@ -275,17 +277,7 @@ export default function BuildScreen() {
                 </Pressable>
               ) : null}
               {hasFiles ? (
-                <Pressable
-                  onPress={() =>
-                    Alert.alert('Project tools', undefined, [
-                      { text: '🎨 Themes (free)', onPress: () => router.push(`/themes/${id}`) },
-                      { text: '🕘 Version history', onPress: () => router.push(`/versions/${id}`) },
-                      { text: '📄 View code', onPress: () => router.push(`/code/${id}`) },
-                      { text: 'Cancel', style: 'cancel' },
-                    ])
-                  }
-                  hitSlop={8}
-                >
+                <Pressable onPress={() => setToolsOpen(true)} hitSlop={8}>
                   <Ionicons name="ellipsis-horizontal-circle-outline" size={24} color={brand.textMuted} />
                 </Pressable>
               ) : null}
@@ -363,6 +355,33 @@ export default function BuildScreen() {
         </Pressable>
       </View>
       )}
+
+      <BottomSheet
+        visible={toolsOpen}
+        title="Project tools"
+        subtitle={name || undefined}
+        onClose={() => setToolsOpen(false)}
+        actions={[
+          {
+            icon: 'color-palette-outline',
+            label: 'Themes',
+            description: 'Restyle instantly — free, no credits',
+            onPress: () => router.push(`/themes/${id}`),
+          },
+          {
+            icon: 'time-outline',
+            label: 'Version history',
+            description: 'Browse and restore earlier builds',
+            onPress: () => router.push(`/versions/${id}`),
+          },
+          {
+            icon: 'code-slash-outline',
+            label: 'View code',
+            description: 'Read every generated file',
+            onPress: () => router.push(`/code/${id}`),
+          },
+        ]}
+      />
     </KeyboardAvoidingView>
   );
 }

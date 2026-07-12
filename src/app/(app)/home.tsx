@@ -22,6 +22,8 @@ import {
   type ProjectType,
 } from '@/lib/api';
 import { thunk, tap } from '@/lib/haptics';
+import { FadeInUp, staggerDelay } from '@/components/FadeInUp';
+import { SkeletonGalleryCard } from '@/components/Skeleton';
 import { projectUrl, type Project } from '@/lib/types';
 import { brand, font, radius, space } from '@/lib/theme';
 
@@ -46,10 +48,13 @@ export default function HomeScreen() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [gallery, setGallery] = useState<GalleryEntry[]>([]);
+  const [galleryLoading, setGalleryLoading] = useState(true);
   const [latest, setLatest] = useState<Project | null>(null);
 
   useEffect(() => {
-    fetchGallery().then(setGallery);
+    fetchGallery()
+      .then(setGallery)
+      .finally(() => setGalleryLoading(false));
   }, []);
 
   // "Continue building" — the most recently touched project, refreshed on focus.
@@ -88,7 +93,7 @@ export default function HomeScreen() {
   return (
     <ScrollView style={styles.scroll} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
       {/* Hero */}
-      <View style={styles.hero}>
+      <FadeInUp delay={staggerDelay(0)} style={styles.hero}>
         <LinearGradient
           colors={['rgba(14,165,233,0.20)', 'rgba(14,165,233,0.04)', 'transparent']}
           style={StyleSheet.absoluteFill}
@@ -161,10 +166,11 @@ export default function HomeScreen() {
             </Pressable>
           ))}
         </View>
-      </View>
+      </FadeInUp>
 
       {/* Continue building */}
       {latest ? (
+        <FadeInUp delay={staggerDelay(1)}>
         <Pressable
           onPress={() => router.push(`/project/${latest.id}`)}
           style={({ pressed }) => [styles.continueCard, pressed && { backgroundColor: brand.surfaceAlt }]}
@@ -187,18 +193,31 @@ export default function HomeScreen() {
           </View>
           <Ionicons name="chevron-forward" size={18} color={brand.textFaint} />
         </Pressable>
+        </FadeInUp>
       ) : null}
 
       {/* Value props */}
-      <View style={styles.props}>
+      <FadeInUp delay={staggerDelay(2)} style={styles.props}>
         <Prop icon="flash-outline" title="~60 seconds" body="to your first working version" />
         <Prop icon="link-outline" title="Real URL" body="publish live in one tap" />
         <Prop icon="shield-checkmark-outline" title="Security-scanned" body="before anything ships" />
-      </View>
+      </FadeInUp>
 
       {/* Community showcase */}
-      {gallery.length > 0 ? (
+      {galleryLoading ? (
         <View style={styles.gallerySection}>
+          <View style={styles.galleryHeader}>
+            <Text style={styles.galleryTitle}>Built with WyberAi this week</Text>
+            <Text style={styles.gallerySub}>Real apps by real users — yours could be here</Text>
+          </View>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.galleryRow}>
+            {[0, 1, 2].map((i) => (
+              <SkeletonGalleryCard key={i} />
+            ))}
+          </ScrollView>
+        </View>
+      ) : gallery.length > 0 ? (
+        <FadeInUp delay={staggerDelay(3)} style={styles.gallerySection}>
           <View style={styles.galleryHeader}>
             <Text style={styles.galleryTitle}>Built with WyberAi this week</Text>
             <Text style={styles.gallerySub}>Real apps by real users — yours could be here</Text>
@@ -241,7 +260,7 @@ export default function HomeScreen() {
               </Pressable>
             ))}
           </ScrollView>
-        </View>
+        </FadeInUp>
       ) : null}
 
       <View style={{ height: space.xl }} />

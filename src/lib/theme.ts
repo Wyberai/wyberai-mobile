@@ -47,3 +47,23 @@ export const font = {
   displayMedium: 'GeneralSans-Semibold', // 600 — subheads, labels
   sans: undefined as string | undefined, // body → system
 } as const;
+
+// Motion — ported verbatim from the web design system (globals.css). The
+// signature easing is a soft "expo-out" curve; durations mirror --t / --t-slow
+// / --reveal. Keeping these identical to the site is what makes the app feel
+// like the same product, not a separate build. Consumed by the Reanimated
+// helpers (FadeInUp, BottomSheet, Skeleton) via Easing.bezier(...motion.ease).
+export const motion = {
+  // cubic-bezier(0.16, 1, 0.3, 1) — web --ease
+  ease: [0.16, 1, 0.3, 1] as const,
+  // cubic-bezier(0.4, 0, 1, 1) — web --ease-in (for exits)
+  easeIn: [0.4, 0, 1, 1] as const,
+  duration: {
+    fast: 150, // --t
+    base: 350, // --t-slow
+    reveal: 650, // --reveal
+    shimmer: 1500, // @keyframes shimmer 1.5s
+  },
+  // Default entrance travel — matches web @keyframes fadeUp (translateY 20px).
+  rise: 20,
+} as const;
