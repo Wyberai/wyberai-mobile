@@ -108,6 +108,13 @@ jobs:
       - name: Build signed AAB
         working-directory: android
         env:
+          # EXPO_PUBLIC_* are inlined into the JS bundle by Metro during
+          # bundleRelease. Set these as repo VARIABLES (Settings → Secrets and
+          # variables → Actions → Variables) to enable in-app purchases. The
+          # RevenueCat Android key is a PUBLIC client key, so a variable (not a
+          # secret) is correct. Unset → empty → IAP stays off (safe default).
+          EXPO_PUBLIC_ENABLE_IAP: ${{ vars.EXPO_PUBLIC_ENABLE_IAP }}
+          EXPO_PUBLIC_REVENUECAT_ANDROID_KEY: ${{ vars.EXPO_PUBLIC_REVENUECAT_ANDROID_KEY }}
           # ORG_GRADLE_PROJECT_<name> exposes <name> as a Gradle project property,
           # which plugins/withReleaseSigning.js reads. Keystore path is relative
           # to android/app (Gradle resolves signingConfig storeFile from there).

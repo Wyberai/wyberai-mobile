@@ -22,7 +22,7 @@ import {
 import { brand, font, radius, space } from '@/lib/theme';
 
 export default function Paywall() {
-  const { user } = useSession();
+  const { user, refreshCredits } = useSession();
   const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [packages, setPackages] = useState<PurchasesPackage[]>([]);
@@ -48,9 +48,14 @@ export default function Paywall() {
     const result = await purchasePackage(pkg);
     setBusyId(null);
     if (result.ok) {
+      // Credits are granted server-side by the RevenueCat → /api/revenuecat/webhook
+      // (async, usually a few seconds). Poll the balance a few times so it updates
+      // in-app without the user leaving the screen.
+      refreshCredits();
+      [1500, 3500, 6000].forEach((ms) => setTimeout(refreshCredits, ms));
       Alert.alert(
-        'You’re upgraded 🎉',
-        'Your credits will update in a moment.',
+        'Purchase complete 🎉',
+        'Your credits are being added now — they’ll appear in a moment.',
         [{ text: 'Done', onPress: () => router.back() }],
       );
     } else if (result.cancelled) {
@@ -76,10 +81,10 @@ export default function Paywall() {
       <Stack.Screen options={{ title: 'Upgrade', presentation: 'modal', headerBackTitle: 'Close' }} />
       <ScrollView style={styles.scroll} contentContainerStyle={styles.content}>
         <View style={styles.hero}>
-          <Ionicons name="rocket" size={34} color={brand.accent} />
-          <Text style={styles.title}>Build more with WyberAi</Text>
+          <Ionicons name="flash" size={34} color={brand.accent} />
+          <Text style={styles.title}>Buy credits</Text>
           <Text style={styles.subtitle}>
-            Upgrade for more monthly credits — build and edit more apps, faster.
+            Top up to keep building. Credits work across web and mobile, and never expire.
           </Text>
         </View>
 
@@ -97,7 +102,7 @@ export default function Paywall() {
           <View style={styles.notice}>
             <Ionicons name="hourglass-outline" size={18} color={brand.textMuted} />
             <Text style={styles.noticeText}>
-              Plans aren’t available yet. Please check back shortly.
+              Credit packs aren’t available yet. Please check back shortly.
             </Text>
           </View>
         ) : (
@@ -130,9 +135,8 @@ export default function Paywall() {
         ) : null}
 
         <Text style={styles.fine}>
-          Payment is charged to your store account. Subscriptions renew automatically unless
-          cancelled at least 24 hours before the end of the period; manage or cancel in your store
-          account settings.
+          One-time purchase charged to your Google Play account. Credits are added to your WyberAi
+          account and work on web and mobile. No subscription.
         </Text>
       </ScrollView>
     </>

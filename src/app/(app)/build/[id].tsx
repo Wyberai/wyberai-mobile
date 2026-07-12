@@ -4,7 +4,6 @@ import {
   Alert,
   FlatList,
   KeyboardAvoidingView,
-  Linking,
   Platform,
   Pressable,
   ScrollView,
@@ -144,7 +143,7 @@ export default function BuildScreen() {
             // nudge to top up on the web (where credits are bought via Dodo).
             const outOfCredits = /\b402\b|not enough credits|insufficient/i.test(msg);
             const shown = outOfCredits
-              ? "You're out of credits. Top up on the web to keep building — your credits work across web and mobile."
+              ? "You're out of credits. Buy more to keep building — your credits work across web and mobile."
               : msg;
             setMessages((m) =>
               m.map((x) =>
@@ -152,14 +151,10 @@ export default function BuildScreen() {
               ),
             );
             if (outOfCredits) {
-              Alert.alert(
-                'Out of credits',
-                'Top up on the web to keep building. Your credits work everywhere.',
-                [
-                  { text: 'Not now', style: 'cancel' },
-                  { text: 'Top up', onPress: () => Linking.openURL('https://wyberai.com/pricing') },
-                ],
-              );
+              Alert.alert('Out of credits', 'Buy more credits to keep building.', [
+                { text: 'Not now', style: 'cancel' },
+                { text: 'Buy credits', onPress: () => router.push('/paywall') },
+              ]);
             }
             setBusy(false);
             refreshCredits();

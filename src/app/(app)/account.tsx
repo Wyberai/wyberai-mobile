@@ -18,10 +18,6 @@ import { Spinner } from '@/components/Spinner';
 import type { Profile } from '@/lib/types';
 import { brand, font, radius, space } from '@/lib/theme';
 
-// The paywall only appears once IAP is real (RevenueCat products exist + the
-// credit webhook is deployed). Off by default so "Upgrade" is never a dead-end.
-const ENABLE_IAP = process.env.EXPO_PUBLIC_ENABLE_IAP === 'true';
-
 export default function AccountScreen() {
   const { user, signOut, credits } = useSession();
   const router = useRouter();
@@ -103,27 +99,15 @@ export default function AccountScreen() {
           onPress={() => router.push('/new')}
         />
         <View style={styles.divider} />
-        {/* Credits are bought on the web (Dodo) and shared across web + mobile —
-            no in-app purchase, so no Play/App-Store cut. Opens the browser; on
-            return, useFocusEffect above refreshes the balance. */}
+        {/* Buy credits via Google Play Billing (RevenueCat) — compliant in-app
+            purchase, no external-payment steering. The /paywall screen itself
+            shows a calm "install the app" notice in Expo Go where IAP is off. */}
         <LinkRow
           icon="flash-outline"
-          label="Top up credits"
-          onPress={() => Linking.openURL('https://wyberai.com/pricing')}
+          label="Buy credits"
+          onPress={() => router.push('/paywall')}
         />
         <View style={styles.divider} />
-        {/* In-app paywall (RevenueCat) — shown only when IAP is live, so it's
-            never a dead-end. Compliant on iOS + Play (their own billing). */}
-        {ENABLE_IAP ? (
-          <>
-            <LinkRow
-              icon="rocket-outline"
-              label="Upgrade plan"
-              onPress={() => router.push('/paywall')}
-            />
-            <View style={styles.divider} />
-          </>
-        ) : null}
         <LinkRow
           icon="help-circle-outline"
           label="Help & support"
