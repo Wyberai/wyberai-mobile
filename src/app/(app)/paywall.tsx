@@ -26,15 +26,21 @@ import { brand, font, radius, space } from '@/lib/theme';
 
 type BillingPeriod = 'monthly' | 'annual';
 
-// Split the offering: subscription tiers vs one-time credit packs. Prefer the
-// store's product category; fall back to the predefined subscription package
-// types for stores that don't report a category.
+// Split the offering: subscription tiers vs one-time credit packs. A package is
+// a subscription if its product id maps to a known tier (`wyber_builder:monthly`
+// → builder); we fall back to the store's product category. This is id-driven
+// (not package-type driven) so the 4 tiers × 2 periods can live in one offering
+// under any RevenueCat package identifiers.
 function isSubscription(pkg: PurchasesPackage): boolean {
-  const cat = pkg.product.productCategory;
-  if (cat) return cat === PRODUCT_CATEGORY.SUBSCRIPTION;
-  return pkg.packageType === PACKAGE_TYPE.MONTHLY || pkg.packageType === PACKAGE_TYPE.ANNUAL;
+  if (planForProductId(pkg.product.identifier)) return true;
+  return pkg.product.productCategory === PRODUCT_CATEGORY.SUBSCRIPTION;
 }
+// Google product ids are `<subscriptionId>:<basePlanId>`; we name base plans
+// `monthly` / `annual`, so the suffix is the source of truth. Fall back to the
+// RevenueCat package type if a store ever omits the base-plan suffix.
 function matchesPeriod(pkg: PurchasesPackage, period: BillingPeriod): boolean {
+  const basePlan = pkg.product.identifier.split(':')[1];
+  if (basePlan === 'monthly' || basePlan === 'annual') return basePlan === period;
   return period === 'annual'
     ? pkg.packageType === PACKAGE_TYPE.ANNUAL
     : pkg.packageType === PACKAGE_TYPE.MONTHLY;
