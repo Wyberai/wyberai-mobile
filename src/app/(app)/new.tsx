@@ -170,7 +170,7 @@ const styles = StyleSheet.create({
     paddingVertical: space.md + 2,
     marginTop: space.lg,
   },
-  ctaPressed: { backgroundColor: brand.accentDim },
+  ctaPressed: { backgroundColor: brand.accentDim, transform: [{ scale: 0.95 }] },
   ctaDisabled: { opacity: 0.4 },
   ctaText: { color: brand.onAccent, fontSize: 16, fontWeight: '700' },
   hint: { color: brand.textFaint, fontSize: 12, lineHeight: 18, marginTop: space.md, textAlign: 'center' },

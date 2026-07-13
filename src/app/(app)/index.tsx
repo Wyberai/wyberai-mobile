@@ -85,7 +85,7 @@ export default function ProjectsScreen() {
           {!error ? (
             <Pressable
               onPress={() => router.push('/new')}
-              style={({ pressed }) => [styles.emptyCta, pressed && { backgroundColor: brand.accentDim }]}
+              style={({ pressed }) => [styles.emptyCta, pressed && styles.emptyCtaPressed]}
             >
               <Ionicons name="sparkles" size={16} color={brand.onAccent} />
               <Text style={styles.emptyCtaText}>New app</Text>
@@ -169,6 +169,7 @@ const styles = StyleSheet.create({
     borderRadius: radius.pill,
     marginTop: space.md,
   },
+  emptyCtaPressed: { backgroundColor: brand.accentDim, transform: [{ scale: 0.95 }] },
   emptyCtaText: { color: brand.onAccent, fontSize: 15, fontWeight: '700' },
   card: {
     backgroundColor: brand.surface,
@@ -178,7 +179,7 @@ const styles = StyleSheet.create({
     padding: space.lg,
     gap: space.sm,
   },
-  cardPressed: { backgroundColor: brand.surfaceAlt },
+  cardPressed: { backgroundColor: brand.surfaceAlt, transform: [{ scale: 0.95 }] },
   cardThumb: {
     width: '100%',
     height: 120,

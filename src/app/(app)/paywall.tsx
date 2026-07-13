@@ -512,7 +512,7 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 0 },
     elevation: 6,
   },
-  planPressed: { backgroundColor: brand.surfaceAlt },
+  planPressed: { backgroundColor: brand.surfaceAlt, transform: [{ scale: 0.95 }] },
   badge: {
     position: 'absolute',
     top: -9,

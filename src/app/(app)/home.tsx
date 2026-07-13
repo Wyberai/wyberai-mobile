@@ -230,7 +230,7 @@ export default function HomeScreen() {
                   tap();
                   WebBrowser.openBrowserAsync(entry.live_url).catch(() => {});
                 }}
-                style={({ pressed }) => [styles.galleryCard, pressed && { borderColor: brand.accent }]}
+                style={({ pressed }) => [styles.galleryCard, pressed && styles.galleryCardPressed]}
               >
                 {entry.thumbnail_url ? (
                   <Image source={{ uri: entry.thumbnail_url }} style={styles.galleryThumb} contentFit="cover" transition={150} />
@@ -372,7 +372,7 @@ const styles = StyleSheet.create({
     paddingVertical: space.sm + 2,
     borderRadius: radius.pill,
   },
-  buildBtnPressed: { backgroundColor: brand.accentDim },
+  buildBtnPressed: { backgroundColor: brand.accentDim, transform: [{ scale: 0.95 }] },
   buildBtnDisabled: { opacity: 0.4 },
   buildBtnText: { color: brand.onAccent, fontSize: 14, fontWeight: '800' },
   error: { color: brand.danger, fontSize: 13, marginTop: space.sm },
@@ -388,7 +388,7 @@ const styles = StyleSheet.create({
     paddingVertical: 7,
     borderRadius: radius.pill,
   },
-  chipPressed: { borderColor: brand.accent },
+  chipPressed: { borderColor: brand.accent, transform: [{ scale: 0.95 }] },
   chipText: { color: brand.textMuted, fontSize: 12.5, fontWeight: '600' },
   continueCard: {
     flexDirection: 'row',
@@ -438,6 +438,7 @@ const styles = StyleSheet.create({
     borderRadius: radius.lg,
     overflow: 'hidden',
   },
+  galleryCardPressed: { borderColor: brand.accent, transform: [{ scale: 0.95 }] },
   galleryThumb: { width: '100%', height: 110, backgroundColor: brand.surfaceAlt },
   galleryThumbEmpty: { alignItems: 'center', justifyContent: 'center' },
   galleryCardBody: { padding: space.md, gap: 5 },
