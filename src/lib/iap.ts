@@ -18,26 +18,45 @@ if (!isExpoGo) {
 }
 
 // Real store keys take precedence once the App Store / Play apps exist; the
-// RevenueCat Test Store key is the dev fallback so a preview build works today.
+// RevenueCat Test Store key is a DEV-ONLY fallback. Shipping a `test_` key in a
+// release build is fatal: RevenueCat's SDK force-closes the app the moment it
+// sees a test key against real Play Billing ("to protect the security of test
+// purchases"). So the test key is gated on `__DEV__` (false in a Metro
+// bundleRelease) and never leaks into production.
 const IOS_KEY = process.env.EXPO_PUBLIC_REVENUECAT_IOS_KEY ?? '';
 const ANDROID_KEY = process.env.EXPO_PUBLIC_REVENUECAT_ANDROID_KEY ?? '';
 const TEST_KEY = process.env.EXPO_PUBLIC_REVENUECAT_TEST_KEY ?? 'test_qckKDIiCKdPxyAhFEvoJYiWoTOC';
 const ENTITLEMENT = 'pro';
 
+// Optional kill-switch: only OFF when explicitly disabled. Real-key presence is
+// the real gate, so we don't depend on this variable being set.
+const iapDisabled = ['false', '0'].includes(
+  (process.env.EXPO_PUBLIC_ENABLE_IAP ?? '').toLowerCase(),
+);
+
+// The key actually used to configure RevenueCat. In production a missing real
+// key resolves to '' (never the test key), so the app degrades to the paywall's
+// calm "install the app" notice instead of crashing.
+const REAL_KEY = Platform.OS === 'ios' ? IOS_KEY : ANDROID_KEY;
+const API_KEY = REAL_KEY || (__DEV__ ? TEST_KEY : '');
+
+// IAP is usable only when the native module loaded, a key exists, and it's not
+// killed. `isIapAvailable()` reflects this so the UI never offers a purchase it
+// can't complete.
+const iapReady = Purchases !== null && !!API_KEY && !iapDisabled;
+
 export function isIapAvailable(): boolean {
-  return Purchases !== null;
+  return iapReady;
 }
 
 let configured = false;
 
 /** Configure RevenueCat with the Supabase user id as the app_user_id. */
 export async function configureIap(userId: string): Promise<void> {
-  if (!Purchases) return;
-  const key = (Platform.OS === 'ios' ? IOS_KEY : ANDROID_KEY) || TEST_KEY;
-  if (!key) return;
+  if (!Purchases || !iapReady) return;
   try {
     if (!configured) {
-      Purchases.configure({ apiKey: key, appUserID: userId });
+      Purchases.configure({ apiKey: API_KEY, appUserID: userId });
       configured = true;
     } else {
       await Purchases.logIn(userId);

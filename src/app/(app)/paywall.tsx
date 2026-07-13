@@ -36,11 +36,15 @@ function isSubscription(pkg: PurchasesPackage): boolean {
   return pkg.product.productCategory === PRODUCT_CATEGORY.SUBSCRIPTION;
 }
 // Google product ids are `<subscriptionId>:<basePlanId>`; we name base plans
-// `monthly` / `annual`, so the suffix is the source of truth. Fall back to the
-// RevenueCat package type if a store ever omits the base-plan suffix.
+// `monthly` / `annual`, so the suffix is the source of truth. India gets
+// `annual-in` — a PREPAID yearly plan, because RBI's ₹15k e-mandate cap blocks
+// auto-renewing annuals for Builder — so match on prefix, not equality. Fall
+// back to the RevenueCat package type if a store ever omits the suffix.
 function matchesPeriod(pkg: PurchasesPackage, period: BillingPeriod): boolean {
   const basePlan = pkg.product.identifier.split(':')[1];
-  if (basePlan === 'monthly' || basePlan === 'annual') return basePlan === period;
+  if (basePlan?.startsWith('monthly') || basePlan?.startsWith('annual')) {
+    return basePlan.startsWith(period);
+  }
   return period === 'annual'
     ? pkg.packageType === PACKAGE_TYPE.ANNUAL
     : pkg.packageType === PACKAGE_TYPE.MONTHLY;
@@ -107,11 +111,11 @@ export default function Paywall() {
   const storeCurrency =
     subs[0]?.product.currencyCode ?? packs[0]?.product.currencyCode ?? '';
   const isINR = storeCurrency === 'INR';
-  // Does an annual base plan exist? (only show the toggle if so)
-  const hasAnnual = useMemo(
-    () => subs.some((p) => p.packageType === PACKAGE_TYPE.ANNUAL),
-    [subs],
-  );
+  // Does an annual base plan exist? (only show the toggle if so) Detect by the
+  // product-id base-plan suffix, NOT PACKAGE_TYPE — our offering uses custom
+  // package identifiers (builder-annual, builder-annual-in, …) whose type is
+  // CUSTOM, so a PACKAGE_TYPE.ANNUAL check would hide the toggle entirely.
+  const hasAnnual = useMemo(() => subs.some((p) => matchesPeriod(p, 'annual')), [subs]);
 
   useEffect(() => {
     let active = true;
@@ -340,8 +344,8 @@ export default function Paywall() {
 
         <Text style={styles.fine}>
           Charged to your Google Play account. Credits work on web and mobile. Subscriptions renew
-          automatically until cancelled in Google Play; one-time packs never expire. Manage or cancel
-          anytime in your Play subscriptions.
+          automatically until cancelled in Google Play (prepaid plans extend when you choose to renew);
+          one-time packs never expire. Manage or cancel anytime in your Play subscriptions.
         </Text>
       </ScrollView>
     </>
