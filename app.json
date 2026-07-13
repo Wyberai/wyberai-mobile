@@ -19,6 +19,7 @@
     },
     "android": {
       "package": "com.wyberai.app",
+      "versionCode": 2,
       "permissions": ["com.android.vending.BILLING"],
       "adaptiveIcon": {
         "backgroundColor": "#0A0A0B",
