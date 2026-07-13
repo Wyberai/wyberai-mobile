@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Animated,
   Image,
   KeyboardAvoidingView,
   Platform,
@@ -40,6 +41,19 @@ export default function SignIn() {
   const [oauthBusy, setOauthBusy] = useState<null | 'google' | 'github'>(null);
   const [appleBusy, setAppleBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [inputFocused, setInputFocused] = useState(false);
+  const shake = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    if (!error) return;
+    shake.setValue(0);
+    Animated.sequence([
+      Animated.timing(shake, { toValue: 1, duration: 45, useNativeDriver: true }),
+      Animated.timing(shake, { toValue: -1, duration: 45, useNativeDriver: true }),
+      Animated.timing(shake, { toValue: 1, duration: 45, useNativeDriver: true }),
+      Animated.timing(shake, { toValue: 0, duration: 45, useNativeDriver: true }),
+    ]).start();
+  }, [error, shake]);
 
   async function onApple() {
     setError(null);
@@ -152,7 +166,7 @@ export default function SignIn() {
               ) : null}
 
               <TextInput
-                style={styles.input}
+                style={[styles.input, inputFocused && styles.inputFocused]}
                 placeholder="you@example.com"
                 placeholderTextColor={brand.textFaint}
                 keyboardType="email-address"
@@ -161,10 +175,18 @@ export default function SignIn() {
                 autoComplete="email"
                 value={email}
                 onChangeText={setEmail}
+                onFocus={() => setInputFocused(true)}
+                onBlur={() => setInputFocused(false)}
                 editable={!busy && oauthBusy === null}
               />
 
-              {error ? <Text style={styles.error}>{error}</Text> : null}
+              {error ? (
+                <Animated.View
+                  style={{ transform: [{ translateX: shake.interpolate({ inputRange: [-1, 1], outputRange: [-6, 6] }) }] }}
+                >
+                  <Text style={styles.error}>{error}</Text>
+                </Animated.View>
+              ) : null}
 
               <PrimaryButton
                 label="Email me a code"
@@ -179,7 +201,7 @@ export default function SignIn() {
               <Text style={styles.subtitle}>We emailed a code to {email}. Enter it below.</Text>
 
               <TextInput
-                style={[styles.input, styles.codeInput]}
+                style={[styles.input, styles.codeInput, inputFocused && styles.inputFocused]}
                 placeholder="Enter code"
                 placeholderTextColor={brand.textFaint}
                 keyboardType="number-pad"
@@ -188,10 +210,18 @@ export default function SignIn() {
                 maxLength={8}
                 value={code}
                 onChangeText={setCode}
+                onFocus={() => setInputFocused(true)}
+                onBlur={() => setInputFocused(false)}
                 editable={!busy}
               />
 
-              {error ? <Text style={styles.error}>{error}</Text> : null}
+              {error ? (
+                <Animated.View
+                  style={{ transform: [{ translateX: shake.interpolate({ inputRange: [-1, 1], outputRange: [-6, 6] }) }] }}
+                >
+                  <Text style={styles.error}>{error}</Text>
+                </Animated.View>
+              ) : null}
 
               <PrimaryButton
                 label="Verify & continue"
@@ -218,7 +248,7 @@ export default function SignIn() {
               <Text style={styles.subtitle}>Enter the password for {email}</Text>
 
               <TextInput
-                style={styles.input}
+                style={[styles.input, inputFocused && styles.inputFocused]}
                 placeholder="Password"
                 placeholderTextColor={brand.textFaint}
                 secureTextEntry
@@ -226,10 +256,18 @@ export default function SignIn() {
                 autoCorrect={false}
                 value={password}
                 onChangeText={setPassword}
+                onFocus={() => setInputFocused(true)}
+                onBlur={() => setInputFocused(false)}
                 editable={!busy}
               />
 
-              {error ? <Text style={styles.error}>{error}</Text> : null}
+              {error ? (
+                <Animated.View
+                  style={{ transform: [{ translateX: shake.interpolate({ inputRange: [-1, 1], outputRange: [-6, 6] }) }] }}
+                >
+                  <Text style={styles.error}>{error}</Text>
+                </Animated.View>
+              ) : null}
 
               <PrimaryButton
                 label="Sign in"
@@ -341,7 +379,7 @@ const styles = StyleSheet.create({
     paddingVertical: space.md + 2,
     minHeight: 50,
   },
-  oauthBtnPressed: { backgroundColor: brand.surfaceAlt },
+  oauthBtnPressed: { backgroundColor: brand.surfaceAlt, transform: [{ scale: 0.97 }] },
   appleBtn: { height: 50, width: '100%' },
   oauthText: { color: brand.text, fontSize: 15, fontWeight: '600' },
   dividerRow: { flexDirection: 'row', alignItems: 'center', gap: space.sm, marginVertical: space.xs },
@@ -359,6 +397,7 @@ const styles = StyleSheet.create({
     color: brand.text,
     fontSize: 16,
   },
+  inputFocused: { borderColor: brand.accent },
   codeInput: { fontSize: 24, letterSpacing: 8, textAlign: 'center', fontWeight: '600' },
   error: { color: brand.danger, fontSize: 14 },
   button: {
@@ -370,7 +409,7 @@ const styles = StyleSheet.create({
     marginTop: space.sm,
     minHeight: 50,
   },
-  buttonPressed: { backgroundColor: brand.accentDim },
+  buttonPressed: { backgroundColor: brand.accentDim, transform: [{ scale: 0.95 }] },
   buttonDisabled: { opacity: 0.4 },
   buttonText: { color: brand.onAccent, fontSize: 16, fontWeight: '700' },
   link: { color: brand.accent, fontSize: 14, textAlign: 'center', marginTop: space.lg },

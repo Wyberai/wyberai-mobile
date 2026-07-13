@@ -493,6 +493,31 @@ export async function fetchGallery(): Promise<GalleryEntry[]> {
   }
 }
 
+// ── Referral program ─────────────────────────────────────────────────────
+export type ReferralInfo = { code: string; count: number; creditsEarned: number };
+
+/** The signed-in user's referral code + stats. The server lazily mints a code
+ * on first call, so this always returns something usable. null on failure. */
+export async function fetchReferral(): Promise<ReferralInfo | null> {
+  try {
+    const token = await accessToken();
+    if (!token) return null;
+    const res = await fetch(`${API_BASE}/api/referral`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const data = (await res.json().catch(() => ({}))) as Partial<ReferralInfo>;
+    if (!res.ok || !data.code) return null;
+    return { code: data.code, count: data.count ?? 0, creditsEarned: data.creditsEarned ?? 0 };
+  } catch {
+    return null;
+  }
+}
+
+/** Shareable invite link — new user gets 20 credits, referrer gets 50 on signup. */
+export function referralLink(code: string): string {
+  return `${API_BASE}/signup?ref=${code}`;
+}
+
 // ── Project management (RLS-scoped, same as the web dashboard) ──────────────
 export async function renameProject(projectId: string, name: string): Promise<void> {
   const { error } = await supabase

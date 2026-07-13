@@ -5,6 +5,7 @@ import {
   Linking,
   Pressable,
   ScrollView,
+  Share,
   StyleSheet,
   Text,
   View,
@@ -13,7 +14,15 @@ import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { useSession } from '@/ctx/session';
 import { supabase } from '@/lib/supabase';
-import { deleteAccount, fetchCreditHistory, type CreditEvent } from '@/lib/api';
+import {
+  deleteAccount,
+  fetchCreditHistory,
+  fetchReferral,
+  referralLink,
+  type CreditEvent,
+  type ReferralInfo,
+} from '@/lib/api';
+import { tap } from '@/lib/haptics';
 import { Spinner } from '@/components/Spinner';
 import type { Profile } from '@/lib/types';
 import { brand, font, radius, space } from '@/lib/theme';
@@ -25,6 +34,17 @@ export default function AccountScreen() {
   const [loading, setLoading] = useState(true);
   const [deleting, setDeleting] = useState(false);
   const [activity, setActivity] = useState<CreditEvent[]>([]);
+  const [referral, setReferral] = useState<ReferralInfo | null>(null);
+
+  function onInvite() {
+    if (!referral) return;
+    tap();
+    const link = referralLink(referral.code);
+    Share.share({
+      message: `Build an app in minutes with WyberAi — you'll get 20 free credits when you join with my link: ${link}`,
+      url: link,
+    }).catch(() => {});
+  }
 
   function onDeleteAccount() {
     Alert.alert(
@@ -62,6 +82,7 @@ export default function AccountScreen() {
         setLoading(false);
       });
     fetchCreditHistory(12).then(setActivity);
+    fetchReferral().then(setReferral);
   }, [user]);
 
   // Refetch every time the Account tab regains focus, so credits topped up on
@@ -93,6 +114,26 @@ export default function AccountScreen() {
           <StatCard label="Plan" value={capitalize(profile?.plan ?? 'free')} icon="ribbon-outline" />
         </View>
       )}
+
+      {referral ? (
+        <Pressable
+          onPress={onInvite}
+          style={({ pressed }) => [styles.inviteCard, pressed && styles.inviteCardPressed]}
+        >
+          <View style={styles.inviteIcon}>
+            <Ionicons name="gift-outline" size={22} color={brand.accent} />
+          </View>
+          <View style={styles.inviteText}>
+            <Text style={styles.inviteTitle}>Invite friends, earn credits</Text>
+            <Text style={styles.inviteSub}>
+              {referral.count > 0
+                ? `${referral.count} joined · ${referral.creditsEarned} credits earned`
+                : 'They get 20 free credits, you get 50'}
+            </Text>
+          </View>
+          <Ionicons name="share-outline" size={20} color={brand.accent} />
+        </Pressable>
+      ) : null}
 
       <View style={styles.group}>
         <LinkRow
@@ -268,6 +309,28 @@ const styles = StyleSheet.create({
   },
   statValue: { color: brand.text, fontSize: 22, fontWeight: '700', marginTop: space.xs },
   statLabel: { color: brand.textFaint, fontSize: 12 },
+  inviteCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.md,
+    backgroundColor: 'rgba(14,165,233,0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(14,165,233,0.3)',
+    borderRadius: radius.lg,
+    padding: space.lg,
+  },
+  inviteCardPressed: { backgroundColor: 'rgba(14,165,233,0.14)', transform: [{ scale: 0.97 }] },
+  inviteIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: radius.md,
+    backgroundColor: 'rgba(14,165,233,0.16)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  inviteText: { flex: 1, gap: 2 },
+  inviteTitle: { color: brand.text, fontSize: 15, fontWeight: '700' },
+  inviteSub: { color: brand.textMuted, fontSize: 12.5 },
   group: {
     backgroundColor: brand.surface,
     borderColor: brand.border,

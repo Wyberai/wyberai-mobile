@@ -17,7 +17,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '@/lib/supabase';
 import { projectUrl, isMobileProject, type Project } from '@/lib/types';
 import { deleteProject, publishProject, renameProject, unpublishProject } from '@/lib/api';
-import { success, tap, warn } from '@/lib/haptics';
+import { tap, warn } from '@/lib/haptics';
+import { useToast } from '@/components/Toast';
 import { Spinner } from '@/components/Spinner';
 import { brand, font, radius, space } from '@/lib/theme';
 
@@ -27,6 +28,7 @@ const SELECT =
 export default function ProjectDetail() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
+  const showToast = useToast();
   const [project, setProject] = useState<Project | null>(null);
   const [loading, setLoading] = useState(true);
   const [publishing, setPublishing] = useState(false);
@@ -78,7 +80,7 @@ export default function ProjectDetail() {
     try {
       await renameProject(project.id, next);
       setProject({ ...project, name: next });
-      success();
+      showToast('Renamed');
     } catch (e) {
       Alert.alert('Rename failed', (e as Error).message);
     } finally {

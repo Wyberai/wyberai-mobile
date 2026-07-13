@@ -50,6 +50,7 @@ export default function HomeScreen() {
   const [gallery, setGallery] = useState<GalleryEntry[]>([]);
   const [galleryLoading, setGalleryLoading] = useState(true);
   const [latest, setLatest] = useState<Project | null>(null);
+  const [promptFocused, setPromptFocused] = useState(false);
 
   useEffect(() => {
     fetchGallery()
@@ -103,13 +104,15 @@ export default function HomeScreen() {
         </Text>
         <Text style={styles.heroTitle}>What will you{'\n'}build today?</Text>
 
-        <View style={styles.promptCard}>
+        <View style={[styles.promptCard, promptFocused && styles.promptCardFocused]}>
           <TextInput
             style={styles.promptInput}
             placeholder='Try "a booking site for my salon"…'
             placeholderTextColor={brand.textFaint}
             value={prompt}
             onChangeText={setPrompt}
+            onFocus={() => setPromptFocused(true)}
+            onBlur={() => setPromptFocused(false)}
             multiline
             editable={!busy}
           />
@@ -333,6 +336,7 @@ const styles = StyleSheet.create({
     borderRadius: radius.lg,
     overflow: 'hidden',
   },
+  promptCardFocused: { borderColor: brand.accent },
   promptInput: {
     minHeight: 76,
     maxHeight: 140,

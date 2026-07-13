@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Animated,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -21,6 +22,18 @@ export default function NewAppScreen() {
   const [prompt, setPrompt] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [focused, setFocused] = useState(false);
+  const shake = useRef(new Animated.Value(0)).current;
+
+  function runShake() {
+    shake.setValue(0);
+    Animated.sequence([
+      Animated.timing(shake, { toValue: 1, duration: 45, useNativeDriver: true }),
+      Animated.timing(shake, { toValue: -1, duration: 45, useNativeDriver: true }),
+      Animated.timing(shake, { toValue: 1, duration: 45, useNativeDriver: true }),
+      Animated.timing(shake, { toValue: 0, duration: 45, useNativeDriver: true }),
+    ]).start();
+  }
 
   async function onCreate() {
     if (!prompt.trim() || busy) return;
@@ -34,6 +47,7 @@ export default function NewAppScreen() {
     } catch (e) {
       setError((e as Error).message);
       setBusy(false);
+      runShake();
     }
   }
 
@@ -58,20 +72,28 @@ export default function NewAppScreen() {
         </View>
 
         <Text style={[styles.label, { marginTop: space.lg }]}>Describe it</Text>
-        <TextInput
-          style={styles.textarea}
-          placeholder={
-            type === 'mobile'
-              ? 'A meditation app with a timer and daily streaks…'
-              : 'A landing page for my coffee shop with a menu…'
-          }
-          placeholderTextColor={brand.textFaint}
-          value={prompt}
-          onChangeText={setPrompt}
-          multiline
-          editable={!busy}
-          autoFocus
-        />
+        <Animated.View
+          style={{
+            transform: [{ translateX: shake.interpolate({ inputRange: [-1, 1], outputRange: [-6, 6] }) }],
+          }}
+        >
+          <TextInput
+            style={[styles.textarea, focused && styles.textareaFocused]}
+            placeholder={
+              type === 'mobile'
+                ? 'A meditation app with a timer and daily streaks…'
+                : 'A landing page for my coffee shop with a menu…'
+            }
+            placeholderTextColor={brand.textFaint}
+            value={prompt}
+            onChangeText={setPrompt}
+            onFocus={() => setFocused(true)}
+            onBlur={() => setFocused(false)}
+            multiline
+            editable={!busy}
+            autoFocus
+          />
+        </Animated.View>
 
         {error ? <Text style={styles.error}>{error}</Text> : null}
 
@@ -159,6 +181,7 @@ const styles = StyleSheet.create({
     lineHeight: 22,
     textAlignVertical: 'top',
   },
+  textareaFocused: { borderColor: brand.accent },
   error: { color: brand.danger, fontSize: 14, marginTop: space.md },
   cta: {
     flexDirection: 'row',

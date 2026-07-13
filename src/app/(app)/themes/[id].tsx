@@ -14,7 +14,8 @@ import { supabase } from '@/lib/supabase';
 import { saveFiles, type FileMap } from '@/lib/api';
 import { PALETTES, type Palette } from '@/lib/design-palettes';
 import { paletteToTheme, writeAppTheme } from '@/lib/app-theme';
-import { success, tap } from '@/lib/haptics';
+import { tap } from '@/lib/haptics';
+import { useToast } from '@/components/Toast';
 import { Spinner } from '@/components/Spinner';
 import { brand, radius, space } from '@/lib/theme';
 
@@ -32,6 +33,7 @@ function hslColor(channels: string | undefined): string {
 
 export default function ThemesScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
+  const showToast = useToast();
   const [files, setFiles] = useState<FileMap>({});
   const [loading, setLoading] = useState(true);
   const [applyingId, setApplyingId] = useState<string | null>(null);
@@ -68,7 +70,7 @@ export default function ThemesScreen() {
       };
       await saveFiles(id, updated);
       setFiles(updated);
-      success();
+      showToast('Theme applied');
       setAppliedId(pal.id);
       setTimeout(() => setAppliedId((prev) => (prev === pal.id ? null : prev)), 2000);
     } catch (e) {

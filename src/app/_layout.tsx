@@ -8,6 +8,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { SessionProvider, useSession } from '@/ctx/session';
 import { Spinner } from '@/components/Spinner';
 import { Onboarding, ONBOARDED_KEY } from '@/components/Onboarding';
+import { ToastProvider } from '@/components/Toast';
 import { brand } from '@/lib/theme';
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
@@ -26,8 +27,10 @@ export default function RootLayout() {
 
   return (
     <SessionProvider>
-      <StatusBar style="light" />
-      <RootNavigator />
+      <ToastProvider>
+        <StatusBar style="light" />
+        <RootNavigator />
+      </ToastProvider>
     </SessionProvider>
   );
 }
