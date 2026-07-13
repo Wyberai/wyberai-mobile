@@ -90,11 +90,11 @@ Once Monetize section unlocks and build is live:
 1. Play Console → WyberAi app → **Monetize with Play** → **Products** → **In-app products** (NOT subscriptions)
 2. Click **Create product** and create three **consumable** managed products:
 
-| Product ID           | Name                | Suggested price |
-| -------------------- | ------------------- | --------------- |
-| `wyber_credits_200`  | 200 credits         | $9 / ₹499       |
-| `wyber_credits_600`  | 600 credits         | $19 / ₹1,299    |
-| `wyber_credits_2000` | 2000 credits        | $49 / ₹3,499    |
+| Product ID           | Name (pack) | Credits | Price (match web) |
+| -------------------- | ----------- | ------- | ----------------- |
+| `wyber_credits_200`  | Boost       | 200     | $19 / ₹399        |
+| `wyber_credits_600`  | Power       | 600     | $49 / ₹999        |
+| `wyber_credits_2000` | Studio      | 2000    | $99 / ₹1,999      |
 
 3. For each product:
    - Set price in both USD and INR

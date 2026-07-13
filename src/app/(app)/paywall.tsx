@@ -62,7 +62,7 @@ const PACK_META = [
   {
     match: /600/,
     credits: 600,
-    name: 'Builder',
+    name: 'Power',
     tagline: 'For serious side projects',
     builds: '~20 app builds',
     badge: 'MOST POPULAR',
@@ -71,7 +71,7 @@ const PACK_META = [
   {
     match: /200/,
     credits: 200,
-    name: 'Starter',
+    name: 'Boost',
     tagline: 'Get your first apps live',
     builds: '~6 app builds',
     badge: null,
