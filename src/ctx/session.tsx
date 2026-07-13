@@ -7,7 +7,6 @@ import * as AppleAuthentication from 'expo-apple-authentication';
 import { supabase } from '@/lib/supabase';
 import { registerForPushNotifications } from '@/lib/push';
 import { triggerOnboarding, fetchCredits } from '@/lib/api';
-import { configureIap } from '@/lib/iap';
 
 export type OAuthProvider = 'google' | 'github';
 
@@ -124,7 +123,11 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       registerForPushNotifications(uid);
       triggerOnboarding(); // welcome email + signup tracking (server-guarded, once per user)
       refreshCredits();
-      configureIap(uid); // RevenueCat appUserID = Supabase id (no-op in Expo Go)
+      // RevenueCat (configureIap) is intentionally NOT initialized here — it's
+      // configured lazily in paywall.tsx when the user actually opens it. A
+      // native SDK init failure here would crash the whole app for every user
+      // on every sign-in; deferring it means a misconfiguration only affects
+      // the paywall, not the entire app.
     }
     if (!uid) {
       registeredFor.current = null;
