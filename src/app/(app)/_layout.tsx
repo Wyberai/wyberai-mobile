@@ -2,9 +2,13 @@ import { Tabs, useRouter } from 'expo-router';
 import { Pressable, Text } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { brand, font } from '@/lib/theme';
+import { usePushNavigation } from '@/lib/usePushNavigation';
 
 export default function AppTabsLayout() {
   const router = useRouter();
+  // Route tapped push notifications to the right screen (build→project,
+  // credits_low→paywall, etc.). Side-effect only; renders nothing.
+  usePushNavigation();
   return (
     <Tabs
       initialRouteName="home"
