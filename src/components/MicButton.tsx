@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Pressable, StyleSheet } from 'react-native';
+import { Alert, Pressable, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import Animated, {
   Easing,
@@ -75,7 +75,11 @@ export function MicButton({ value, onChangeText, disabled, size = 34 }: Props) {
     transform: [{ scale: 1 + pulse.value * 0.55 }],
   }));
 
-  if (!available) return null;
+  // NOTE: we deliberately DON'T hide the mic when isRecognitionAvailable() is
+  // false. Hiding it meant users (and the permission prompt) never saw it at
+  // all — the control just silently vanished. It's always visible now; tapping
+  // requests permission (like other apps) and, if the device has no speech
+  // service, shows a clear message instead of doing nothing.
 
   async function toggle() {
     tap();
@@ -85,8 +89,19 @@ export function MicButton({ value, onChangeText, disabled, size = 34 }: Props) {
       return;
     }
     try {
+      // Ask for permission on tap so the OS mic dialog appears like other apps.
       const perm = await ExpoSpeechRecognitionModule.requestPermissionsAsync();
-      if (!perm.granted) return;
+      if (!perm.granted) {
+        Alert.alert('Microphone needed', 'Allow microphone access to speak your app idea.');
+        return;
+      }
+      // Re-check at tap time (availability can settle after mount).
+      let ok = available;
+      try { ok = ExpoSpeechRecognitionModule.isRecognitionAvailable(); } catch { ok = false; }
+      if (!ok) {
+        Alert.alert('Voice input unavailable', "This device doesn't have a speech service enabled. You can still type your idea.");
+        return;
+      }
       baseRef.current = value.trim();
       finalRef.current = '';
       ExpoSpeechRecognitionModule.start({
@@ -97,6 +112,7 @@ export function MicButton({ value, onChangeText, disabled, size = 34 }: Props) {
       setListening(true);
     } catch {
       setListening(false);
+      Alert.alert('Voice input unavailable', "Couldn't start voice input on this device. You can still type your idea.");
     }
   }
 

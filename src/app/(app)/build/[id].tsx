@@ -21,6 +21,7 @@ import {
   buildMobilePreviewHtml,
   buildPreview,
   loadMessages,
+  resolveImages,
   planProject,
   planToSpec,
   saveFiles,
@@ -35,6 +36,7 @@ import { thunk, warn } from '@/lib/haptics';
 import { cleanStreamingDisplay, extractProgressLines } from '@/lib/file-parser';
 import { BottomSheet } from '@/components/BottomSheet';
 import { BuildTheater } from '@/components/BuildTheater';
+import { ConnectorsSheet } from '@/components/ConnectorsSheet';
 import { MicButton } from '@/components/MicButton';
 import { PreviewRevealSheet, type RevealState } from '@/components/PreviewRevealSheet';
 import { SafeWidget } from '@/components/SafeWidget';
@@ -66,6 +68,7 @@ export default function BuildScreen() {
   const firedInitial = useRef(false);
   const listRef = useRef<FlatList<Msg>>(null);
   const [toolsOpen, setToolsOpen] = useState(false);
+  const [connectorsOpen, setConnectorsOpen] = useState(false);
   // The reveal moment: after a build lands, the app auto-renders in a slide-up
   // sheet. Purely additive — every await mutates only this state, and the
   // whole surface is SafeWidget'd, so a preview failure can't touch chat.
@@ -191,7 +194,21 @@ export default function BuildScreen() {
               saveVersion(id, next, userMsg.text);
               // The reveal: auto-render the freshly built app in the slide-up
               // sheet. Fire-and-forget — only runs when files actually changed.
-              if (changed.length > 0) autoPreview(next);
+              if (changed.length > 0) {
+                autoPreview(next); // instant preview with labeled gradient placeholders
+                // Then resolve real AI images in the background, persist them, and
+                // refresh the preview so it "comes to life". Best-effort; the
+                // gradient-labeled preview already shown never regresses on failure.
+                resolveImages(id, next)
+                  .then(({ files: withImages, changed: imgChanged }) => {
+                    if (imgChanged && !goneRef.current) {
+                      setFiles(withImages);
+                      saveFiles(id, withImages).catch(() => {});
+                      autoPreview(withImages);
+                    }
+                  })
+                  .catch(() => {});
+              }
             } catch (e) {
               setMessages((m) =>
                 m.map((x) =>
@@ -399,6 +416,12 @@ export default function BuildScreen() {
         onClose={() => setToolsOpen(false)}
         actions={[
           {
+            icon: 'extension-puzzle-outline',
+            label: 'Connectors',
+            description: 'Add Stripe, OpenAI, Resend & 30+ more',
+            onPress: () => setConnectorsOpen(true),
+          },
+          {
             icon: 'color-palette-outline',
             label: 'Themes',
             description: 'Restyle instantly — free, no credits',
@@ -429,6 +452,12 @@ export default function BuildScreen() {
           }}
         />
       </SafeWidget>
+
+      <ConnectorsSheet
+        visible={connectorsOpen}
+        onClose={() => setConnectorsOpen(false)}
+        onRun={(prompt) => run(prompt)}
+      />
     </KeyboardAvoidingView>
   );
 }

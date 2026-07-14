@@ -2,7 +2,7 @@
   "expo": {
     "name": "WyberAi",
     "slug": "wyberai-mobile",
-    "version": "2.1.0",
+    "version": "2.2.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "wyberai",
@@ -19,7 +19,7 @@
     },
     "android": {
       "package": "com.wyberai.app",
-      "versionCode": 3,
+      "versionCode": 4,
       "permissions": ["com.android.vending.BILLING"],
       "adaptiveIcon": {
         "backgroundColor": "#0A0A0B",

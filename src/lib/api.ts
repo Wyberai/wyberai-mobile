@@ -89,7 +89,92 @@ export async function createProject(opts: {
   );
 
   if (error) throw new Error(error.message);
-  return data.id as string;
+  const projectId = data.id as string;
+  // Smart-name it from the prompt (Haiku, 2-4 words), mirroring the web's
+  // creation-time naming. Fire-and-forget: the endpoint is idempotent + guarded
+  // (only renames while the name is still the raw prompt slice), so this never
+  // blocks navigation and the title refreshes on the next screen load.
+  autoNameProject(projectId, opts.prompt);
+  return projectId;
+}
+
+/**
+ * Ask the server to smart-name a project from its prompt (POST /api/projects/auto-name,
+ * the same endpoint the web app uses). Best-effort; failures leave the optimistic
+ * 4-word slice in place.
+ */
+export async function autoNameProject(projectId: string, prompt: string): Promise<void> {
+  try {
+    const token = await accessToken();
+    if (!token) return;
+    await fetch(`${API_BASE}/api/projects/auto-name`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ projectId, prompt }),
+    });
+  } catch {
+    /* naming is best-effort */
+  }
+}
+
+// {{wyber-image: <prompt> [| <ratio>]}} directive — mirrors web image-directives.ts.
+const IMAGE_DIRECTIVE_RE = /\{\{\s*wyber-image\s*:\s*([^|}]+?)\s*(?:\|\s*([^}]+?)\s*)?\}\}/gi;
+function imageRatioToSize(ratio?: string): string {
+  const r = (ratio || '').trim().toLowerCase();
+  if (r === '1:1' || r === 'square' || r === '1024x1024') return '1024x1024';
+  if (r === '9:16' || r === 'tall' || r === 'portrait' || r === '1024x1792') return '1024x1792';
+  if (r === '16:9' || r === 'wide' || r === 'landscape' || r === 'banner' || r === '1792x1024') return '1792x1024';
+  return '1792x1024';
+}
+
+/**
+ * Swap {{wyber-image}} placeholder tokens for REAL persisted image URLs via the
+ * shared /api/images/resolve-directives endpoint (same OpenAI cache the web
+ * preview + publish use — one ~$0.06 generation per unique image, then free).
+ * Best-effort: returns the files unchanged (labeled gradient placeholders remain)
+ * on any failure. When it DOES change files, the caller should re-save so preview
+ * and publish reuse them.
+ */
+export async function resolveImages(
+  projectId: string,
+  files: FileMap,
+): Promise<{ files: FileMap; changed: boolean }> {
+  try {
+    const seen = new Map<string, { token: string; prompt: string; ratio: string }>();
+    for (const f of Object.values(files)) {
+      for (const m of (f.content || '').matchAll(IMAGE_DIRECTIVE_RE)) {
+        const token = m[0];
+        if (!seen.has(token)) seen.set(token, { token, prompt: (m[1] || '').trim(), ratio: imageRatioToSize(m[2]) });
+      }
+    }
+    const directives = [...seen.values()];
+    if (directives.length === 0) return { files, changed: false };
+
+    const token = await accessToken();
+    const res = await fetch(`${API_BASE}/api/images/resolve-directives`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+      body: JSON.stringify({ projectId, directives }),
+    });
+    const data = (await res.json().catch(() => ({}))) as { urls?: Record<string, string> };
+    if (!res.ok || !data.urls || Object.keys(data.urls).length === 0) return { files, changed: false };
+
+    const next: FileMap = {};
+    let changed = false;
+    for (const [path, f] of Object.entries(files)) {
+      let content = f.content || '';
+      for (const [tok, url] of Object.entries(data.urls)) {
+        if (url && content.includes(tok)) {
+          content = content.split(tok).join(url);
+          changed = true;
+        }
+      }
+      next[path] = { ...f, content };
+    }
+    return { files: changed ? next : files, changed };
+  } catch {
+    return { files, changed: false };
+  }
 }
 
 /** Read the signed-in user's current credit balance (0 if unknown). */
@@ -168,14 +253,21 @@ export type PublishResult =
  */
 export async function publishProject(projectId: string, override = false): Promise<PublishResult> {
   const token = await accessToken();
-  const res = await fetch(`${API_BASE}/api/publish`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
-    body: JSON.stringify({ projectId, override }),
-  });
+  // Publish runs a security scan + image generation + a build server-side, so it
+  // can take a while — but it must NOT hang the button forever if the connection
+  // stalls. Cap it so the caller always resolves (the "stuck spinner" fix).
+  const res = await withTimeout(
+    fetch(`${API_BASE}/api/publish`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify({ projectId, override }),
+    }),
+    120_000,
+    'Publishing',
+  );
   const data = (await res.json().catch(() => ({}))) as {
     publishedUrl?: string;
     subdomain?: string;
@@ -522,6 +614,44 @@ export async function fetchSuggestions(): Promise<{ suggestions: Suggestion[]; g
     };
   } catch {
     return { suggestions: [], generated: false };
+  }
+}
+
+// ── Connectors / secrets vault ──────────────────────────────────────────────
+// A connector "works" once its API key(s) live in the user's vault; the deploy
+// step injects them as env vars (mirrors the web builder). Supabase/OAuth
+// connectors are deferred — this covers the key-based ones.
+
+/** Names already in the vault (UPPERCASE), for the "✓ Connected" state. */
+export async function listSecretNames(): Promise<Set<string>> {
+  try {
+    const token = await accessToken();
+    if (!token) return new Set();
+    const res = await fetch(`${API_BASE}/api/secrets`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const data = (await res.json().catch(() => ({}))) as { secrets?: { name: string }[] };
+    if (!res.ok) return new Set();
+    return new Set((data.secrets ?? []).map((s) => (s.name || '').toUpperCase()));
+  } catch {
+    return new Set();
+  }
+}
+
+/** Save one secret (upsert by name). Throws on failure so the UI can surface it. */
+export async function saveSecret(name: string, value: string): Promise<void> {
+  const token = await accessToken();
+  const res = await fetch(`${API_BASE}/api/secrets`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify({ name, value }),
+  });
+  if (!res.ok) {
+    const t = await res.text().catch(() => '');
+    throw new Error(`Couldn't save key (${res.status}): ${t.slice(0, 120)}`);
   }
 }
 

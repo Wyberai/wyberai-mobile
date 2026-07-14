@@ -51,21 +51,32 @@ export default function ProjectDetail() {
   const isMobile = project ? isMobileProject(project) : false;
 
   async function doPublish(override = false) {
-    if (!project) return;
+    if (!project || publishing) return;
     setPublishing(true);
-    const result = await publishProject(project.id, override);
-    setPublishing(false);
-    if (result.ok) {
-      await load();
-      Alert.alert('Published 🎉', `🔒 Security-checked, then published live.\n\n${result.publishedUrl}`);
-    } else if (result.blocked) {
-      // Critical RLS leak — same "publish anyway" escape hatch as the web editor.
-      Alert.alert('Security check', result.message, [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Publish anyway', style: 'destructive', onPress: () => doPublish(true) },
-      ]);
-    } else {
-      Alert.alert('Publish failed', result.error);
+    try {
+      const result = await publishProject(project.id, override);
+      if (result.ok) {
+        await load();
+        Alert.alert('Published 🎉', '🔒 Security-checked, then published live.', [
+          { text: 'Open', onPress: () => WebBrowser.openBrowserAsync(result.publishedUrl).catch(() => {}) },
+          { text: 'Share', onPress: () => Share.share({ message: result.publishedUrl, url: result.publishedUrl }).catch(() => {}) },
+          { text: 'Done', style: 'cancel' },
+        ]);
+      } else if (result.blocked) {
+        // Critical RLS leak — same "publish anyway" escape hatch as the web editor.
+        Alert.alert('Security check', result.message, [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Publish anyway', style: 'destructive', onPress: () => doPublish(true) },
+        ]);
+      } else {
+        Alert.alert('Publish failed', result.error);
+      }
+    } catch (e) {
+      // A thrown network error / timeout must never strand the button as a
+      // spinner (the "had to try twice" symptom).
+      Alert.alert('Publish failed', (e as Error).message || 'Something went wrong. Please try again.');
+    } finally {
+      setPublishing(false);
     }
   }
 
@@ -252,7 +263,10 @@ export default function ProjectDetail() {
               style={({ pressed }) => [styles.primary, (pressed || publishing) && styles.primaryPressed]}
             >
               {publishing ? (
-                <ActivityIndicator color={brand.onAccent} />
+                <>
+                  <ActivityIndicator color={brand.onAccent} />
+                  <Text style={styles.primaryText}>Publishing…</Text>
+                </>
               ) : (
                 <>
                   <Ionicons name="rocket-outline" size={18} color={brand.onAccent} />

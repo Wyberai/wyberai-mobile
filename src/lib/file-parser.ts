@@ -65,7 +65,17 @@ export function cleanStreamingDisplay(raw: string): string {
   out = out.replace(/<<<<<<<\s*SEARCH[\s\S]*?>>>>>>>\s*REPLACE/g, '');
   const openSearch = out.search(/<<<<<<<\s*SEARCH/);
   if (openSearch !== -1) out = out.slice(0, openSearch);
-  return out.trim();
+  // Match the web ChatPanel's extra cleanup (ChatPanel.tsx): strip <agent>/<flow>
+  // wrappers and the server-injected [progress: …] lines — these were leaking as
+  // raw text in the mobile bubble while the checklist showed the same steps.
+  out = out.replace(/<agent>[\s\S]*?<\/agent>/gi, '');
+  out = out.replace(/<flow>[\s\S]*?<\/flow>/gi, '');
+  out = out.replace(/\[progress:[^\]]*\]/gi, '');
+  // Drop the model's plan preamble lines (Building: / Sections: / Files:). These
+  // are plain text (not tag-wrapped) so no rule above touches them; the build
+  // theater already conveys the same information visually.
+  out = out.replace(/^\s*(building|sections|files)\s*:.*$/gim, '');
+  return out.replace(/\n{3,}/g, '\n\n').trim();
 }
 
 // Extract [progress: ...] step labels from a streaming buffer, in order, deduped.

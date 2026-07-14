@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Alert, Pressable, Share, StyleSheet, Text, View } from 'react-native';
-import { Stack, useLocalSearchParams } from 'expo-router';
+import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { WebView } from 'react-native-webview';
 import { Ionicons } from '@expo/vector-icons';
 import { Spinner } from '@/components/Spinner';
@@ -16,6 +16,7 @@ type State =
 
 export default function PreviewScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
+  const router = useRouter();
   const [state, setState] = useState<State>({ phase: 'building' });
   // The durable link to share is the PUBLISHED url; the preview url is transient.
   const [publishedUrl, setPublishedUrl] = useState<string | null>(null);
@@ -70,6 +71,15 @@ export default function PreviewScreen() {
       <Stack.Screen
         options={{
           title: 'Preview',
+          // These detail screens live in the Tabs group (href:null), so there's
+          // no automatic stack back button — Android back would jump to Home.
+          // Add an explicit chevron back to the builder (router.back is
+          // unreliable across tab routes; navigate deterministically).
+          headerLeft: () => (
+            <Pressable onPress={() => router.replace(`/build/${id}`)} hitSlop={10} style={styles.refresh}>
+              <Ionicons name="chevron-back" size={24} color={brand.accent} />
+            </Pressable>
+          ),
           headerRight: () => (
             <View style={styles.headerRow}>
               <Pressable onPress={onShare} hitSlop={8} style={styles.refresh}>
