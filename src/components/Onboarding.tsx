@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   Dimensions,
   Pressable,
@@ -12,6 +12,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { tap } from '@/lib/haptics';
+import { FadeInUp, staggerDelay } from '@/components/FadeInUp';
 import { brand, font, radius, space } from '@/lib/theme';
 
 export const ONBOARDED_KEY = 'wyber:onboarded';
@@ -91,16 +92,29 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
         >
           {SLIDES.map((s, i) => (
             <View key={i} style={[styles.slide, { width }]}>
-              <View
-                style={[
-                  styles.slideIcon,
-                  { backgroundColor: `${s.accent}22`, borderColor: `${s.accent}55` },
-                ]}
-              >
-                <Ionicons name={s.icon} size={40} color={s.accent} />
-              </View>
-              <Text style={styles.slideTitle}>{s.title}</Text>
-              <Text style={styles.slideBody}>{s.body}</Text>
+              {/* key re-triggers the entrance stagger every time this slide
+                  becomes the active page — the pager itself is untouched. */}
+              <FadeInUp key={`icon-${i}-${page === i}`} delay={staggerDelay(0)}>
+                <View
+                  style={[
+                    styles.slideIcon,
+                    { backgroundColor: `${s.accent}22`, borderColor: `${s.accent}55` },
+                  ]}
+                >
+                  <Ionicons name={s.icon} size={40} color={s.accent} />
+                </View>
+              </FadeInUp>
+              <FadeInUp key={`title-${i}-${page === i}`} delay={staggerDelay(1)}>
+                <Text style={styles.slideTitle}>{s.title}</Text>
+              </FadeInUp>
+              <FadeInUp key={`body-${i}-${page === i}`} delay={staggerDelay(2)}>
+                <Text style={styles.slideBody}>{s.body}</Text>
+              </FadeInUp>
+              {i === 0 ? (
+                <FadeInUp key={`demo-${page === 0}`} delay={staggerDelay(3)}>
+                  <TypeOnDemo active={page === 0} />
+                </FadeInUp>
+              ) : null}
             </View>
           ))}
         </ScrollView>
@@ -120,6 +134,82 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
     </View>
   );
 }
+
+// The 10-second product demo, no video needed: a prompt types itself out,
+// then build steps check off — the exact loop the user is about to live.
+const DEMO_PROMPT = 'a booking site for my salon';
+const DEMO_STEPS = ['Designing your pages', 'Writing the code', 'Ready to publish'];
+
+function TypeOnDemo({ active }: { active: boolean }) {
+  const [chars, setChars] = useState(0);
+  const [steps, setSteps] = useState(0);
+
+  useEffect(() => {
+    if (!active) return;
+    let c = 0;
+    let s = 0;
+    let timer: ReturnType<typeof setTimeout>;
+    const tick = () => {
+      if (c < DEMO_PROMPT.length) {
+        c += 1;
+        setChars(c);
+        timer = setTimeout(tick, 45);
+      } else if (s < DEMO_STEPS.length) {
+        s += 1;
+        setSteps(s);
+        timer = setTimeout(tick, 700);
+      } else {
+        // Hold the finished state, then loop.
+        timer = setTimeout(() => {
+          c = 0;
+          s = 0;
+          setChars(0);
+          setSteps(0);
+          tick();
+        }, 2600);
+      }
+    };
+    timer = setTimeout(tick, 500);
+    return () => clearTimeout(timer);
+  }, [active]);
+
+  return (
+    <View style={demoStyles.card}>
+      <View style={demoStyles.promptRow}>
+        <Ionicons name="sparkles" size={13} color={brand.accent} />
+        <Text style={demoStyles.promptText}>
+          {DEMO_PROMPT.slice(0, chars)}
+          {chars < DEMO_PROMPT.length ? <Text style={demoStyles.caret}>▍</Text> : null}
+        </Text>
+      </View>
+      {DEMO_STEPS.slice(0, steps).map((s) => (
+        <View key={s} style={demoStyles.stepRow}>
+          <Ionicons name="checkmark-circle" size={13} color={brand.success} />
+          <Text style={demoStyles.stepText}>{s}</Text>
+        </View>
+      ))}
+    </View>
+  );
+}
+
+const demoStyles = StyleSheet.create({
+  card: {
+    width: 280,
+    minHeight: 118,
+    backgroundColor: brand.surface,
+    borderWidth: 1,
+    borderColor: brand.border,
+    borderRadius: radius.md,
+    padding: space.md,
+    gap: 7,
+    marginTop: space.xs,
+  },
+  promptRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 6 },
+  promptText: { color: brand.text, fontSize: 13.5, lineHeight: 19, flexShrink: 1 },
+  caret: { color: brand.accent },
+  stepRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  stepText: { color: brand.textMuted, fontSize: 12.5 },
+});
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: brand.bg },

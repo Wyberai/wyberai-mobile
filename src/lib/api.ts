@@ -493,6 +493,38 @@ export async function fetchGallery(): Promise<GalleryEntry[]> {
   }
 }
 
+// ── "Today's ideas" (AI-personalized starter prompts) ───────────────────────
+export type Suggestion = {
+  title: string;
+  prompt: string;
+  category: string; // fixed server enum — map to an icon client-side
+};
+
+/**
+ * Personalized app ideas for today (generated once per user per day server-side).
+ * [] on any failure — callers fall back to the static STARTERS.
+ */
+export async function fetchSuggestions(): Promise<{ suggestions: Suggestion[]; generated: boolean }> {
+  try {
+    const token = await accessToken();
+    if (!token) return { suggestions: [], generated: false };
+    const res = await fetch(`${API_BASE}/api/suggestions`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const data = (await res.json().catch(() => ({}))) as {
+      suggestions?: Suggestion[];
+      generated?: boolean;
+    };
+    if (!res.ok || !Array.isArray(data.suggestions)) return { suggestions: [], generated: false };
+    return {
+      suggestions: data.suggestions.filter((s) => s?.title && s?.prompt),
+      generated: !!data.generated,
+    };
+  } catch {
+    return { suggestions: [], generated: false };
+  }
+}
+
 // ── Referral program ─────────────────────────────────────────────────────
 export type ReferralInfo = { code: string; count: number; creditsEarned: number };
 

@@ -18,6 +18,8 @@ import { useSession } from '@/ctx/session';
 import { supabase } from '@/lib/supabase';
 import {
   applyGeneration,
+  buildMobilePreviewHtml,
+  buildPreview,
   loadMessages,
   planProject,
   planToSpec,
@@ -32,6 +34,10 @@ import {
 import { thunk, warn } from '@/lib/haptics';
 import { cleanStreamingDisplay, extractProgressLines } from '@/lib/file-parser';
 import { BottomSheet } from '@/components/BottomSheet';
+import { BuildTheater } from '@/components/BuildTheater';
+import { MicButton } from '@/components/MicButton';
+import { PreviewRevealSheet, type RevealState } from '@/components/PreviewRevealSheet';
+import { SafeWidget } from '@/components/SafeWidget';
 import { brand, radius, space } from '@/lib/theme';
 
 type Msg =
@@ -60,6 +66,32 @@ export default function BuildScreen() {
   const firedInitial = useRef(false);
   const listRef = useRef<FlatList<Msg>>(null);
   const [toolsOpen, setToolsOpen] = useState(false);
+  // The reveal moment: after a build lands, the app auto-renders in a slide-up
+  // sheet. Purely additive — every await mutates only this state, and the
+  // whole surface is SafeWidget'd, so a preview failure can't touch chat.
+  const [reveal, setReveal] = useState<RevealState>({ phase: 'hidden' });
+  const goneRef = useRef(false);
+  useEffect(() => () => { goneRef.current = true; }, []);
+
+  const autoPreview = useCallback(
+    async (nextFiles: FileMap) => {
+      if (!id || goneRef.current || Object.keys(nextFiles).length === 0) return;
+      setReveal({ phase: 'building' });
+      try {
+        if (type === 'mobile') {
+          const html = await buildMobilePreviewHtml(id, nextFiles);
+          if (!goneRef.current) setReveal({ phase: 'ready-html', html });
+        } else {
+          const url = await buildPreview(id, nextFiles);
+          if (!goneRef.current) setReveal({ phase: 'ready', url });
+        }
+        if (!goneRef.current) thunk();
+      } catch {
+        if (!goneRef.current) setReveal({ phase: 'error' });
+      }
+    },
+    [id, type],
+  );
 
   useEffect(() => {
     if (!id) return;
@@ -157,6 +189,9 @@ export default function BuildScreen() {
               // Both best-effort — the build already succeeded.
               saveMessage(id, 'assistant', chatText || 'Done.', { filesChanged: changed, clientId: aId });
               saveVersion(id, next, userMsg.text);
+              // The reveal: auto-render the freshly built app in the slide-up
+              // sheet. Fire-and-forget — only runs when files actually changed.
+              if (changed.length > 0) autoPreview(next);
             } catch (e) {
               setMessages((m) =>
                 m.map((x) =>
@@ -195,7 +230,7 @@ export default function BuildScreen() {
         },
       );
     },
-    [id, user?.id, busy, type, files, messages, refreshCredits],
+    [id, user?.id, busy, type, files, messages, refreshCredits, autoPreview],
   );
 
   // Cancel an in-flight build — abort the stream, unlock the UI, and close out
@@ -337,6 +372,7 @@ export default function BuildScreen() {
           multiline
           editable={!busy}
         />
+        <MicButton value={input} onChangeText={setInput} disabled={busy} size={40} />
         <Pressable
           onPress={busy ? cancel : () => run(input)}
           disabled={!busy && !input.trim()}
@@ -382,6 +418,17 @@ export default function BuildScreen() {
           },
         ]}
       />
+
+      <SafeWidget>
+        <PreviewRevealSheet
+          state={reveal}
+          onClose={() => setReveal({ phase: 'hidden' })}
+          onOpenFull={() => {
+            setReveal({ phase: 'hidden' });
+            setTimeout(() => router.push(`/preview/${id}`), 10);
+          }}
+        />
+      </SafeWidget>
     </KeyboardAvoidingView>
   );
 }
@@ -522,21 +569,28 @@ function MessageBubble({ msg }: { msg: Msg }) {
     );
   }
   const progress = msg.progress ?? [];
+  // The plain checklist stays as the SafeWidget fallback: if the animated
+  // theater ever crashes, the build keeps its original progress rendering.
+  const plainChecklist = (
+    <View style={styles.progressWrap}>
+      {progress.map((p, i) => (
+        <View key={i} style={styles.progressRow}>
+          <Ionicons
+            name={i === progress.length - 1 ? 'ellipse-outline' : 'checkmark-circle'}
+            size={14}
+            color={i === progress.length - 1 ? brand.textMuted : brand.success}
+          />
+          <Text style={styles.progressText}>{p}</Text>
+        </View>
+      ))}
+    </View>
+  );
   return (
     <View style={[styles.bubble, styles.aiBubble]}>
       {progress.length > 0 && msg.streaming ? (
-        <View style={styles.progressWrap}>
-          {progress.map((p, i) => (
-            <View key={i} style={styles.progressRow}>
-              <Ionicons
-                name={i === progress.length - 1 ? 'ellipse-outline' : 'checkmark-circle'}
-                size={14}
-                color={i === progress.length - 1 ? brand.textMuted : brand.success}
-              />
-              <Text style={styles.progressText}>{p}</Text>
-            </View>
-          ))}
-        </View>
+        <SafeWidget fallback={plainChecklist}>
+          <BuildTheater progress={progress} />
+        </SafeWidget>
       ) : null}
       {msg.text ? <Text style={styles.aiText}>{msg.text}</Text> : null}
       {msg.streaming && !msg.text && progress.length === 0 ? (

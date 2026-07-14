@@ -1,5 +1,6 @@
 import { Tabs, useRouter } from 'expo-router';
-import { Pressable, Text } from 'react-native';
+import { Pressable, StyleSheet, Text } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { brand, font } from '@/lib/theme';
 import { usePushNavigation } from '@/lib/usePushNavigation';
@@ -18,10 +19,19 @@ export default function AppTabsLayout() {
         headerShadowVisible: false,
         tabBarActiveTintColor: brand.accent,
         tabBarInactiveTintColor: brand.textFaint,
+        // Subtle vertical gradient instead of a flat surface — reads as depth
+        // without blur (expo-blur isn't installed; expo-glass-effect is
+        // iOS-only and this release ships Android — both are iOS candidates).
         tabBarStyle: {
-          backgroundColor: brand.surface,
+          backgroundColor: 'transparent',
           borderTopColor: brand.border,
         },
+        tabBarBackground: () => (
+          <LinearGradient
+            colors={[brand.surface, '#0C0C10F5']}
+            style={StyleSheet.absoluteFill}
+          />
+        ),
         sceneStyle: { backgroundColor: brand.bg },
       }}
     >

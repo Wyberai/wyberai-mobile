@@ -18,12 +18,15 @@ import { supabase } from '@/lib/supabase';
 import {
   createProject,
   fetchGallery,
+  fetchSuggestions,
   type GalleryEntry,
   type ProjectType,
+  type Suggestion,
 } from '@/lib/api';
 import { thunk, tap } from '@/lib/haptics';
 import { FadeInUp, staggerDelay } from '@/components/FadeInUp';
-import { SkeletonGalleryCard } from '@/components/Skeleton';
+import { MicButton } from '@/components/MicButton';
+import { SkeletonBox, SkeletonGalleryCard } from '@/components/Skeleton';
 import { projectUrl, type Project } from '@/lib/types';
 import { brand, font, radius, space } from '@/lib/theme';
 
@@ -40,6 +43,19 @@ const STARTERS: { label: string; prompt: string; icon: keyof typeof Ionicons.gly
   { label: 'Event page', prompt: 'An event landing page with schedule, speakers, and an RSVP form', icon: 'ticket-outline' },
 ];
 
+// /api/suggestions categories → Ionicons. The server guarantees this enum;
+// anything unexpected falls back to the sparkles icon.
+const CATEGORY_ICONS: Record<string, keyof typeof Ionicons.glyphMap> = {
+  commerce: 'cart-outline',
+  booking: 'calendar-outline',
+  portfolio: 'person-outline',
+  productivity: 'checkmark-done-outline',
+  social: 'people-outline',
+  content: 'newspaper-outline',
+  food: 'restaurant-outline',
+  events: 'ticket-outline',
+};
+
 export default function HomeScreen() {
   const router = useRouter();
   const { user } = useSession();
@@ -51,11 +67,21 @@ export default function HomeScreen() {
   const [galleryLoading, setGalleryLoading] = useState(true);
   const [latest, setLatest] = useState<Project | null>(null);
   const [promptFocused, setPromptFocused] = useState(false);
+  // "Today's ideas": AI-personalized starter chips. null = loading (skeletons),
+  // [] = fetch failed or not generated → fall back to the static STARTERS.
+  const [ideas, setIdeas] = useState<Suggestion[] | null>(null);
+  const [ideasPersonalized, setIdeasPersonalized] = useState(false);
 
   useEffect(() => {
     fetchGallery()
       .then(setGallery)
       .finally(() => setGalleryLoading(false));
+    fetchSuggestions()
+      .then(({ suggestions, generated }) => {
+        setIdeas(suggestions);
+        setIdeasPersonalized(generated && suggestions.length > 0);
+      })
+      .catch(() => setIdeas([]));
   }, []);
 
   // "Continue building" — the most recently touched project, refreshed on focus.
@@ -131,43 +157,61 @@ export default function HomeScreen() {
                 onPress={() => setType('mobile')}
               />
             </View>
-            <Pressable
-              onPress={onBuild}
-              disabled={busy || !prompt.trim()}
-              style={({ pressed }) => [
-                styles.buildBtn,
-                (busy || !prompt.trim()) && styles.buildBtnDisabled,
-                pressed && styles.buildBtnPressed,
-              ]}
-            >
-              {busy ? (
-                <ActivityIndicator color={brand.onAccent} size="small" />
-              ) : (
-                <>
-                  <Ionicons name="sparkles" size={15} color={brand.onAccent} />
-                  <Text style={styles.buildBtnText}>Build it</Text>
-                </>
-              )}
-            </Pressable>
+            <View style={styles.promptActions}>
+              <MicButton value={prompt} onChangeText={setPrompt} disabled={busy} size={32} />
+              <Pressable
+                onPress={onBuild}
+                disabled={busy || !prompt.trim()}
+                style={({ pressed }) => [
+                  styles.buildBtn,
+                  (busy || !prompt.trim()) && styles.buildBtnDisabled,
+                  pressed && styles.buildBtnPressed,
+                ]}
+              >
+                {busy ? (
+                  <ActivityIndicator color={brand.onAccent} size="small" />
+                ) : (
+                  <>
+                    <Ionicons name="sparkles" size={15} color={brand.onAccent} />
+                    <Text style={styles.buildBtnText}>Build it</Text>
+                  </>
+                )}
+              </Pressable>
+            </View>
           </View>
         </View>
         {error ? <Text style={styles.error}>{error}</Text> : null}
 
-        {/* Starter chips */}
+        {/* Starter chips — AI "Today's ideas" when available, STARTERS otherwise */}
+        {ideasPersonalized ? (
+          <Text style={styles.ideasKicker}>✦ FOR YOU TODAY</Text>
+        ) : null}
         <View style={styles.chips}>
-          {STARTERS.map((s) => (
-            <Pressable
-              key={s.label}
-              onPress={() => {
-                tap();
-                setPrompt(s.prompt);
-              }}
-              style={({ pressed }) => [styles.chip, pressed && styles.chipPressed]}
-            >
-              <Ionicons name={s.icon} size={13} color={brand.accent} />
-              <Text style={styles.chipText}>{s.label}</Text>
-            </Pressable>
-          ))}
+          {ideas === null
+            ? [0, 1, 2, 3].map((i) => (
+                <SkeletonBox key={i} width={104} height={30} rounded={radius.pill} />
+              ))
+            : (ideas.length > 0
+                ? ideas.map((s) => ({
+                    label: s.title,
+                    prompt: s.prompt,
+                    icon: CATEGORY_ICONS[s.category] ?? ('sparkles-outline' as const),
+                  }))
+                : STARTERS
+              ).map((s, i) => (
+                <FadeInUp key={s.label} delay={staggerDelay(i, 40)}>
+                  <Pressable
+                    onPress={() => {
+                      tap();
+                      setPrompt(s.prompt);
+                    }}
+                    style={({ pressed }) => [styles.chip, pressed && styles.chipPressed]}
+                  >
+                    <Ionicons name={s.icon} size={13} color={brand.accent} />
+                    <Text style={styles.chipText}>{s.label}</Text>
+                  </Pressable>
+                </FadeInUp>
+              ))}
         </View>
       </FadeInUp>
 
@@ -356,6 +400,7 @@ const styles = StyleSheet.create({
     backgroundColor: brand.surfaceAlt,
   },
   typeToggle: { flexDirection: 'row', gap: 4 },
+  promptActions: { flexDirection: 'row', alignItems: 'center', gap: space.sm },
   pill: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -380,6 +425,14 @@ const styles = StyleSheet.create({
   buildBtnDisabled: { opacity: 0.4 },
   buildBtnText: { color: brand.onAccent, fontSize: 14, fontWeight: '800' },
   error: { color: brand.danger, fontSize: 13, marginTop: space.sm },
+  ideasKicker: {
+    color: brand.accent,
+    fontSize: 9.5,
+    fontWeight: '800',
+    letterSpacing: 1,
+    marginTop: space.md,
+    marginBottom: -4,
+  },
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: space.sm, marginTop: space.md },
   chip: {
     flexDirection: 'row',

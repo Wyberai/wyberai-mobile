@@ -2,7 +2,7 @@
   "expo": {
     "name": "WyberAi",
     "slug": "wyberai-mobile",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "wyberai",
@@ -19,7 +19,7 @@
     },
     "android": {
       "package": "com.wyberai.app",
-      "versionCode": 2,
+      "versionCode": 3,
       "permissions": ["com.android.vending.BILLING"],
       "adaptiveIcon": {
         "backgroundColor": "#0A0A0B",
@@ -52,6 +52,13 @@
       "expo-web-browser",
       "expo-secure-store",
       "expo-apple-authentication",
+      [
+        "expo-speech-recognition",
+        {
+          "microphonePermission": "WyberAi uses the microphone so you can speak your app idea.",
+          "speechRecognitionPermission": "WyberAi turns your speech into a build prompt."
+        }
+      ],
       "./plugins/withReleaseSigning"
     ],
     "experiments": {
