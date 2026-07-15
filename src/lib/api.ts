@@ -223,6 +223,42 @@ export async function buildMobilePreviewHtml(projectId: string, files: FileMap):
   return data.html;
 }
 
+export type SnackResult = { snackId: string; snackUrl: string; embedUrl: string };
+
+/**
+ * Convert a generated mobile app into an Expo Snack — a permanent, shareable URL
+ * where the app can be opened in Expo Go on a real device (QR/link) or run in the
+ * browser web player. This is the "ship it / test on your phone" path for mobile
+ * projects (they don't publish to a web URL like web apps do). Reuses the web
+ * app's /api/snack (auth via the Bearer bridge in the server Supabase client).
+ */
+export async function createSnack(
+  name: string,
+  files: FileMap,
+): Promise<SnackResult> {
+  const token = await accessToken();
+  // /api/snack wants a flat { path: contents } map, not our { content } shape.
+  const flat: Record<string, string> = {};
+  for (const [path, f] of Object.entries(files || {})) {
+    if (f?.content) flat[path] = f.content;
+  }
+  const res = await withTimeout(
+    fetch(`${API_BASE}/api/snack`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify({ files: flat, name }),
+    }),
+    30_000,
+    'Converting to a mobile app',
+  );
+  const data = (await res.json().catch(() => ({}))) as Partial<SnackResult> & { error?: string };
+  if (!res.ok || !data.snackUrl) throw new Error(data.error || `Convert failed (${res.status})`);
+  return { snackId: data.snackId!, snackUrl: data.snackUrl, embedUrl: data.embedUrl! };
+}
+
 /**
  * Build a web-app preview and return a loadable URL. Goes through wyberai.com's
  * /api/preview-build (NOT the raw preview-builder) so the files are sanitized

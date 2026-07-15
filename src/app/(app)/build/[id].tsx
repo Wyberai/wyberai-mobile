@@ -180,6 +180,17 @@ export default function BuildScreen() {
               }
               setFiles(next);
               await saveFiles(id, next);
+              // Smart-naming is fired (fire-and-forget) at project creation and
+              // usually lands during this first build. Pull the freshest name so
+              // the header shows the smart name instead of the raw-prompt slice.
+              supabase
+                .from('projects')
+                .select('name')
+                .eq('id', id)
+                .maybeSingle()
+                .then(({ data }) => {
+                  if (data?.name && !goneRef.current) setName(data.name);
+                });
               setMessages((m) =>
                 m.map((x) =>
                   x.id === aId && x.role === 'assistant'

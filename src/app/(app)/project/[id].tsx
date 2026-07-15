@@ -16,7 +16,8 @@ import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '@/lib/supabase';
 import { projectUrl, isMobileProject, type Project } from '@/lib/types';
-import { deleteProject, publishProject, renameProject, unpublishProject } from '@/lib/api';
+import { createSnack, deleteProject, publishProject, renameProject, unpublishProject } from '@/lib/api';
+import type { FileMap } from '@/lib/api';
 import { tap, warn } from '@/lib/haptics';
 import { useToast } from '@/components/Toast';
 import { Spinner } from '@/components/Spinner';
@@ -32,6 +33,7 @@ export default function ProjectDetail() {
   const [project, setProject] = useState<Project | null>(null);
   const [loading, setLoading] = useState(true);
   const [publishing, setPublishing] = useState(false);
+  const [converting, setConverting] = useState(false);
   const [editingName, setEditingName] = useState(false);
   const [draftName, setDraftName] = useState('');
   const [savingName, setSavingName] = useState(false);
@@ -77,6 +79,39 @@ export default function ProjectDetail() {
       Alert.alert('Publish failed', (e as Error).message || 'Something went wrong. Please try again.');
     } finally {
       setPublishing(false);
+    }
+  }
+
+  async function doConvert() {
+    if (!project || converting) return;
+    setConverting(true);
+    try {
+      const { data } = await supabase
+        .from('projects')
+        .select('files')
+        .eq('id', project.id)
+        .maybeSingle();
+      const files = (data?.files as FileMap) ?? {};
+      if (Object.keys(files).length === 0) {
+        Alert.alert('Nothing to convert', 'Build something first, then convert it to a mobile app.');
+        return;
+      }
+      const snack = await createSnack(project.name || 'WyberAi App', files);
+      // The Snack URL is permanent + shareable: open it on a phone with Expo Go
+      // to run the real native app, or in a browser to test the web player.
+      Alert.alert(
+        'Ready to test on your phone 📱',
+        'Your app is now a mobile build. Open it in Expo Go to run it live on a real device, or share the link.',
+        [
+          { text: 'Open in Expo', onPress: () => WebBrowser.openBrowserAsync(snack.snackUrl).catch(() => {}) },
+          { text: 'Share', onPress: () => Share.share({ message: snack.snackUrl, url: snack.snackUrl }).catch(() => {}) },
+          { text: 'Done', style: 'cancel' },
+        ],
+      );
+    } catch (e) {
+      Alert.alert('Convert failed', (e as Error).message || 'Something went wrong. Please try again.');
+    } finally {
+      setConverting(false);
     }
   }
 
@@ -304,13 +339,32 @@ export default function ProjectDetail() {
               ) : null}
             </>
           ) : isMobile ? (
-            <View style={styles.notice}>
-              <Ionicons name="phone-portrait-outline" size={18} color={brand.textMuted} />
-              <Text style={styles.noticeText}>
-                Mobile apps are exported to Expo (EAS) to build for the App Store &amp; Play Store —
-                coming soon. Use Preview to see it running now.
-              </Text>
-            </View>
+            <>
+              <Pressable
+                onPress={doConvert}
+                disabled={converting}
+                style={({ pressed }) => [styles.primary, (pressed || converting) && styles.primaryPressed]}
+              >
+                {converting ? (
+                  <>
+                    <ActivityIndicator color={brand.onAccent} />
+                    <Text style={styles.primaryText}>Converting…</Text>
+                  </>
+                ) : (
+                  <>
+                    <Ionicons name="phone-portrait-outline" size={18} color={brand.onAccent} />
+                    <Text style={styles.primaryText}>Convert to mobile app</Text>
+                  </>
+                )}
+              </Pressable>
+              <View style={styles.notice}>
+                <Ionicons name="information-circle-outline" size={18} color={brand.textMuted} />
+                <Text style={styles.noticeText}>
+                  Preview runs your app live in the builder. When it&apos;s ready, convert it to a
+                  mobile app to test on a real phone (Expo Go) and ship to the stores.
+                </Text>
+              </View>
+            </>
           ) : null}
 
           <Pressable onPress={doDelete} hitSlop={8} style={styles.deleteRow}>
