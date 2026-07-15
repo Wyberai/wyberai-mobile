@@ -16,7 +16,7 @@ import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '@/lib/supabase';
 import { projectUrl, isMobileProject, type Project } from '@/lib/types';
-import { createSnack, deleteProject, publishProject, renameProject, unpublishProject } from '@/lib/api';
+import { API_BASE, createSnack, deleteProject, publishProject, renameProject, unpublishProject } from '@/lib/api';
 import type { FileMap } from '@/lib/api';
 import { tap, warn } from '@/lib/haptics';
 import { useToast } from '@/components/Toast';
@@ -341,6 +341,23 @@ export default function ProjectDetail() {
           ) : isMobile ? (
             <>
               <Pressable
+                onPress={() => WebBrowser.openBrowserAsync(`${API_BASE}/m/${project.id}`).catch(() => {})}
+                style={({ pressed }) => [styles.secondary, pressed && styles.secondaryPressed]}
+              >
+                <Ionicons name="globe-outline" size={18} color={brand.text} />
+                <Text style={styles.secondaryText}>Test in browser</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => {
+                  const url = `${API_BASE}/m/${project.id}`;
+                  Share.share({ message: url, url }).catch(() => {});
+                }}
+                style={({ pressed }) => [styles.secondary, pressed && styles.secondaryPressed]}
+              >
+                <Ionicons name="share-outline" size={18} color={brand.text} />
+                <Text style={styles.secondaryText}>Share preview link</Text>
+              </Pressable>
+              <Pressable
                 onPress={doConvert}
                 disabled={converting}
                 style={({ pressed }) => [styles.primary, (pressed || converting) && styles.primaryPressed]}
@@ -360,8 +377,8 @@ export default function ProjectDetail() {
               <View style={styles.notice}>
                 <Ionicons name="information-circle-outline" size={18} color={brand.textMuted} />
                 <Text style={styles.noticeText}>
-                  Preview runs your app live in the builder. When it&apos;s ready, convert it to a
-                  mobile app to test on a real phone (Expo Go) and ship to the stores.
+                  Test in browser opens a shareable, phone-framed link. When it&apos;s ready, convert
+                  it to a mobile app to test on a real phone (Expo Go) and ship to the stores.
                 </Text>
               </View>
             </>
