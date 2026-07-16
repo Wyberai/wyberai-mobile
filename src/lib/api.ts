@@ -205,22 +205,43 @@ export async function saveFiles(projectId: string, files: FileMap): Promise<void
 
 /**
  * Build an in-app mobile (react-native-web) preview and return an HTML document
- * to load directly in the WebView. This renders the generated RN app INSIDE
- * WyberAi — the Expo Go / Snack replacement. Returns the HTML string.
+ * to load directly in the WebView. LEGACY/FALLBACK: the react-native-web shim
+ * layer renders many apps as a static, non-interactive screenshot. The primary
+ * mobile preview is now the Expo Snack embed (buildMobilePreviewUrl) which runs
+ * the real RN runtime. Kept as a fallback. Now timeout-guarded so a stalled
+ * bundle surfaces an error instead of spinning forever.
  */
 export async function buildMobilePreviewHtml(projectId: string, files: FileMap): Promise<string> {
   const token = await accessToken();
-  const res = await fetch(`${API_BASE}/api/rn-web-bundle`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
-    body: JSON.stringify({ files, projectId }),
-  });
+  const res = await withTimeout(
+    fetch(`${API_BASE}/api/rn-web-bundle`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify({ files, projectId }),
+    }),
+    45_000,
+    'Building the preview',
+  );
   const data = (await res.json().catch(() => ({}))) as { html?: string; error?: string };
   if (!res.ok || !data.html) throw new Error(data.error || `Preview build failed (${res.status})`);
   return data.html;
+}
+
+/**
+ * PRIMARY mobile preview: convert the app to an Expo Snack and return the
+ * embedded web-player URL. The Snack web player runs the REAL React Native
+ * runtime, so the generated app is genuinely interactive (unlike the static
+ * react-native-web fallback above). Loaded as { uri } in the WebView — which
+ * keeps it web-rendered (iOS 2.5.2 safe: no native code executes on-device).
+ * Timeout-guarded via createSnack (30s).
+ */
+export async function buildMobilePreviewUrl(name: string, files: FileMap): Promise<string> {
+  const { embedUrl } = await createSnack(name || 'WyberAi Mobile App', files);
+  if (!embedUrl) throw new Error('Preview did not return a URL — please retry.');
+  return embedUrl;
 }
 
 export type SnackResult = { snackId: string; snackUrl: string; embedUrl: string };
@@ -267,11 +288,15 @@ export async function createSnack(
  * never rendered ("Preview isn't ready yet").
  */
 export async function buildPreview(projectId: string, files: FileMap): Promise<string> {
-  const res = await fetch(`${API_BASE}/api/preview-build`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ files, projectId }),
-  });
+  const res = await withTimeout(
+    fetch(`${API_BASE}/api/preview-build`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ files, projectId }),
+    }),
+    60_000,
+    'Building the preview',
+  );
   const data = (await res.json().catch(() => ({}))) as { url?: string; error?: string };
   if (!res.ok || !data.url) throw new Error(data.error || `Preview build failed (${res.status})`);
   return data.url + (data.url.includes('?') ? '&' : '?') + 't=' + Date.now();

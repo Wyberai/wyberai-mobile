@@ -18,7 +18,7 @@ import { useSession } from '@/ctx/session';
 import { supabase } from '@/lib/supabase';
 import {
   applyGeneration,
-  buildMobilePreviewHtml,
+  buildMobilePreviewUrl,
   buildPreview,
   loadMessages,
   resolveImages,
@@ -82,8 +82,9 @@ export default function BuildScreen() {
       setReveal({ phase: 'building' });
       try {
         if (type === 'mobile') {
-          const html = await buildMobilePreviewHtml(id, nextFiles);
-          if (!goneRef.current) setReveal({ phase: 'ready-html', html });
+          // Expo Snack web player — real RN runtime, genuinely interactive.
+          const url = await buildMobilePreviewUrl(name || 'App', nextFiles);
+          if (!goneRef.current) setReveal({ phase: 'ready', url });
         } else {
           const url = await buildPreview(id, nextFiles);
           if (!goneRef.current) setReveal({ phase: 'ready', url });
@@ -93,7 +94,7 @@ export default function BuildScreen() {
         if (!goneRef.current) setReveal({ phase: 'error' });
       }
     },
-    [id, type],
+    [id, type, name],
   );
 
   useEffect(() => {

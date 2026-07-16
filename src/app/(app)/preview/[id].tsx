@@ -5,7 +5,7 @@ import { WebView } from 'react-native-webview';
 import { Ionicons } from '@expo/vector-icons';
 import { Spinner } from '@/components/Spinner';
 import { supabase } from '@/lib/supabase';
-import { buildPreview, buildMobilePreviewHtml, type FileMap } from '@/lib/api';
+import { buildPreview, buildMobilePreviewUrl, type FileMap } from '@/lib/api';
 import { brand, radius, space } from '@/lib/theme';
 
 type State =
@@ -39,7 +39,7 @@ export default function PreviewScreen() {
     try {
       const { data } = await supabase
         .from('projects')
-        .select('files,project_type,published_url')
+        .select('files,project_type,published_url,name')
         .eq('id', id)
         .maybeSingle();
       setPublishedUrl((data?.published_url as string | null) ?? null);
@@ -48,11 +48,13 @@ export default function PreviewScreen() {
         setState({ phase: 'error', message: 'Nothing to preview yet — build something first.' });
         return;
       }
-      // Mobile apps render in-app via react-native-web; web apps via the hosted
-      // preview builder. Both display in this same WebView — one runtime, no Expo Go.
+      // Mobile apps preview via the Expo Snack web player (real RN runtime =
+      // genuinely interactive, not a static screenshot); web apps via the hosted
+      // preview builder. Both load as a URL in this same WebView (web-rendered,
+      // so iOS 2.5.2 stays satisfied — no native code runs on-device).
       if (data?.project_type === 'mobile') {
-        const html = await buildMobilePreviewHtml(id, files);
-        setState({ phase: 'ready-html', html });
+        const url = await buildMobilePreviewUrl((data?.name as string) || 'App', files);
+        setState({ phase: 'ready', url });
       } else {
         const url = await buildPreview(id, files);
         setState({ phase: 'ready', url });
