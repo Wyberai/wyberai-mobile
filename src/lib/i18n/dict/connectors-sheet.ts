@@ -1,0 +1,73 @@
+import type { Locale } from '../locales';
+
+// AI-drafted, not yet native-reviewed. Covers components/ConnectorsSheet.tsx.
+// {name}/{keys}/{search}/{s} are literal placeholders the caller replaces.
+// Connector names/descriptions (CONNECTORS data) stay untranslated — service
+// proper nouns, same convention as pricing-tier names on web.
+export const CONNECTORS_SHEET_STRINGS: Record<Locale, Record<string, string>> = {
+  en: {
+    connectors: 'Connectors',
+    searchIntegrations: 'Search integrations…',
+    pasteKeyHint: "Paste your {name} key{s}. It's stored encrypted and injected when you publish — never shown again.",
+    addYourKey: 'Add your key',
+    enterKeysToConnect: 'Enter {keys} to connect {name}.',
+    connecting: 'Connecting…',
+    connectAndBuild: 'Connect & build',
+    couldntConnect: "Couldn't connect",
+    added: 'Added',
+    noIntegrationsMatch: 'No integrations match "{search}".',
+    supabaseFootnote: 'Need Supabase? Connect it from the web editor for now — coming to mobile soon.',
+  },
+  hi: {
+    connectors: 'कनेक्टर्स',
+    searchIntegrations: 'इंटीग्रेशन खोजें…',
+    pasteKeyHint: 'अपनी {name} की{s} पेस्ट करें। यह एन्क्रिप्टेड स्टोर होती है और पब्लिश करते समय इंजेक्ट होती है — फिर कभी नहीं दिखती।',
+    addYourKey: 'अपनी की जोड़ें',
+    enterKeysToConnect: '{name} को कनेक्ट करने के लिए {keys} डालें।',
+    connecting: 'कनेक्ट हो रहा है…',
+    connectAndBuild: 'कनेक्ट करें और बनाएं',
+    couldntConnect: 'कनेक्ट नहीं हो सका',
+    added: 'जोड़ा गया',
+    noIntegrationsMatch: '"{search}" से कोई इंटीग्रेशन मेल नहीं खाता।',
+    supabaseFootnote: 'Supabase चाहिए? अभी इसे वेब एडिटर से कनेक्ट करें — मोबाइल पर जल्द आ रहा है।',
+  },
+  kn: {
+    connectors: 'ಕನೆಕ್ಟರ್‌ಗಳು',
+    searchIntegrations: 'ಇಂಟಿಗ್ರೇಶನ್‌ಗಳನ್ನು ಹುಡುಕಿ…',
+    pasteKeyHint: 'ನಿಮ್ಮ {name} ಕೀ{s} ಅಂಟಿಸಿ. ಇದನ್ನು ಎನ್‌ಕ್ರಿಪ್ಟ್ ಆಗಿ ಸಂಗ್ರಹಿಸಲಾಗುತ್ತದೆ ಮತ್ತು ನೀವು ಪ್ರಕಟಿಸಿದಾಗ ಇಂಜೆಕ್ಟ್ ಮಾಡಲಾಗುತ್ತದೆ — ಮತ್ತೆ ಎಂದಿಗೂ ತೋರಿಸಲಾಗುವುದಿಲ್ಲ.',
+    addYourKey: 'ನಿಮ್ಮ ಕೀ ಸೇರಿಸಿ',
+    enterKeysToConnect: '{name} ಅನ್ನು ಕನೆಕ್ಟ್ ಮಾಡಲು {keys} ನಮೂದಿಸಿ.',
+    connecting: 'ಕನೆಕ್ಟ್ ಆಗುತ್ತಿದೆ…',
+    connectAndBuild: 'ಕನೆಕ್ಟ್ ಮಾಡಿ ಮತ್ತು ನಿರ್ಮಿಸಿ',
+    couldntConnect: 'ಕನೆಕ್ಟ್ ಆಗಲಿಲ್ಲ',
+    added: 'ಸೇರಿಸಲಾಗಿದೆ',
+    noIntegrationsMatch: '"{search}" ಗೆ ಯಾವುದೇ ಇಂಟಿಗ್ರೇಶನ್ ಹೊಂದಿಕೆಯಾಗುವುದಿಲ್ಲ.',
+    supabaseFootnote: 'Supabase ಬೇಕೇ? ಸದ್ಯಕ್ಕೆ ಇದನ್ನು ವೆಬ್ ಎಡಿಟರ್‌ನಿಂದ ಕನೆಕ್ಟ್ ಮಾಡಿ — ಮೊಬೈಲ್‌ಗೆ ಶೀಘ್ರದಲ್ಲೇ ಬರುತ್ತಿದೆ.',
+  },
+  te: {
+    connectors: 'కనెక్టర్‌లు',
+    searchIntegrations: 'ఇంటిగ్రేషన్‌లను వెతకండి…',
+    pasteKeyHint: 'మీ {name} కీ{s} పేస్ట్ చేయండి. ఇది గుప్తీకరించి నిల్వ చేయబడుతుంది మరియు మీరు ప్రచురించినప్పుడు ఇంజెక్ట్ చేయబడుతుంది — మళ్లీ ఎప్పుడూ చూపబడదు.',
+    addYourKey: 'మీ కీని జోడించండి',
+    enterKeysToConnect: '{name}ని కనెక్ట్ చేయడానికి {keys} నమోదు చేయండి.',
+    connecting: 'కనెక్ట్ అవుతోంది…',
+    connectAndBuild: 'కనెక్ట్ చేసి నిర్మించండి',
+    couldntConnect: 'కనెక్ట్ చేయలేకపోయాము',
+    added: 'జోడించబడింది',
+    noIntegrationsMatch: '"{search}" కి ఏ ఇంటిగ్రేషన్ సరిపోలలేదు.',
+    supabaseFootnote: 'Supabase కావాలా? ప్రస్తుతానికి దీన్ని వెబ్ ఎడిటర్ నుండి కనెక్ట్ చేయండి — మొబైల్‌కి త్వరలో వస్తుంది.',
+  },
+  ta: {
+    connectors: 'கனெக்டர்கள்',
+    searchIntegrations: 'ஒருங்கிணைப்புகளைத் தேடுங்கள்…',
+    pasteKeyHint: 'உங்கள் {name} கீ{s} ஒட்டவும். இது என்க்ரிப்ட் செய்யப்பட்டு சேமிக்கப்படும், நீங்கள் வெளியிடும்போது செருகப்படும் — மீண்டும் ஒருபோதும் காட்டப்படாது.',
+    addYourKey: 'உங்கள் கீயைச் சேர்க்கவும்',
+    enterKeysToConnect: '{name} ஐ இணைக்க {keys} உள்ளிடவும்.',
+    connecting: 'இணைக்கிறது…',
+    connectAndBuild: 'இணைத்து உருவாக்கு',
+    couldntConnect: 'இணைக்க முடியவில்லை',
+    added: 'சேர்க்கப்பட்டது',
+    noIntegrationsMatch: '"{search}" உடன் பொருந்தும் ஒருங்கிணைப்பு இல்லை.',
+    supabaseFootnote: 'Supabase தேவையா? தற்போதைக்கு அதை வெப் எடிட்டரில் இருந்து இணைக்கவும் — மொபைலுக்கு விரைவில் வருகிறது.',
+  },
+};

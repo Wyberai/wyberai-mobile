@@ -22,6 +22,8 @@ import {
 } from '@/lib/iap';
 import { tap, success as hapticSuccess } from '@/lib/haptics';
 import { PLANS, planForProductId, RECOMMENDED_PLAN } from '@/lib/plans';
+import { useT } from '@/lib/i18n/useT';
+import { PAYWALL_STRINGS } from '@/lib/i18n/dict/paywall';
 import { brand, font, radius, space } from '@/lib/theme';
 
 type BillingPeriod = 'monthly' | 'annual';
@@ -53,6 +55,9 @@ function matchesPeriod(pkg: PurchasesPackage, period: BillingPeriod): boolean {
 // Pack marketing metadata, matched to a store product by the credit amount in
 // its identifier (e.g. wyber_credits_600). Prices ALWAYS come from the store —
 // this only adds the framing the raw catalog can't carry.
+// `badge` is a stable internal key (not display text) — badgeLabel() below
+// translates it at render time. Keeping the key untranslated means popularId's
+// comparison never breaks depending on locale.
 const PACK_META = [
   {
     match: /2000/,
@@ -60,7 +65,7 @@ const PACK_META = [
     name: 'Studio',
     tagline: 'Ship a portfolio of apps',
     builds: '~66 app builds',
-    badge: 'BEST VALUE',
+    badge: 'best_value' as const,
     icon: 'rocket' as const,
   },
   {
@@ -69,7 +74,7 @@ const PACK_META = [
     name: 'Power',
     tagline: 'For serious side projects',
     builds: '~20 app builds',
-    badge: 'MOST POPULAR',
+    badge: 'most_popular' as const,
     icon: 'hammer' as const,
   },
   {
@@ -82,6 +87,12 @@ const PACK_META = [
     icon: 'flash' as const,
   },
 ];
+
+function badgeLabel(key: string | null, t: ReturnType<typeof useT<typeof PAYWALL_STRINGS.en>>): string | null {
+  if (key === 'best_value') return t('badgeBestValue');
+  if (key === 'most_popular') return t('badgeMostPopular');
+  return null;
+}
 
 function metaFor(pkg: PurchasesPackage) {
   const key = `${pkg.identifier} ${pkg.product.identifier}`;
@@ -96,6 +107,7 @@ function sortPackages(pkgs: PurchasesPackage[]): PurchasesPackage[] {
 export default function Paywall() {
   const { user, credits, refreshCredits } = useSession();
   const router = useRouter();
+  const t = useT(PAYWALL_STRINGS);
   const [loading, setLoading] = useState(true);
   const [packages, setPackages] = useState<PurchasesPackage[]>([]);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -144,14 +156,14 @@ export default function Paywall() {
       refreshCredits();
       [1500, 3500, 6000].forEach((ms) => setTimeout(refreshCredits, ms));
       Alert.alert(
-        'Purchase complete 🎉',
-        'Your credits are being added now — they’ll appear in a moment.',
-        [{ text: 'Start building', onPress: () => router.back() }],
+        t('purchaseComplete'),
+        t('purchaseCompleteBody'),
+        [{ text: t('startBuilding'), onPress: () => router.back() }],
       );
     } else if (result.cancelled) {
       // user backed out — say nothing
     } else {
-      Alert.alert('Purchase failed', result.error);
+      Alert.alert(t('purchaseFailed'), result.error);
     }
   }
 
@@ -159,21 +171,21 @@ export default function Paywall() {
     const r = await restorePurchases();
     if (r.ok) {
       refreshCredits();
-      Alert.alert(r.isPro ? 'Purchases restored' : 'Nothing to restore');
+      Alert.alert(r.isPro ? t('purchasesRestored') : t('nothingToRestore'));
     } else {
-      Alert.alert('Restore failed', r.error ?? 'Try again later.');
+      Alert.alert(t('restoreFailed'), r.error ?? t('tryAgainLater'));
     }
   }
 
   const unavailable = !isIapAvailable();
   const popularId = useMemo(
-    () => packages.find((p) => metaFor(p)?.badge === 'MOST POPULAR')?.identifier ?? null,
+    () => packages.find((p) => metaFor(p)?.badge === 'most_popular')?.identifier ?? null,
     [packages],
   );
 
   return (
     <>
-      <Stack.Screen options={{ title: 'Get credits', presentation: 'modal', headerBackTitle: 'Close' }} />
+      <Stack.Screen options={{ title: t('getCredits'), presentation: 'modal', headerBackTitle: t('close') }} />
       <ScrollView style={styles.scroll} contentContainerStyle={styles.content}>
         {/* Hero */}
         <View style={styles.heroWrap}>
@@ -184,16 +196,15 @@ export default function Paywall() {
           <View style={styles.heroIcon}>
             <Ionicons name="flash" size={26} color={brand.accent} />
           </View>
-          <Text style={styles.title}>Fuel your next app</Text>
+          <Text style={styles.title}>{t('fuelNextApp')}</Text>
           <Text style={styles.subtitle}>
-            Credits power every build. One balance, shared across web and mobile — and they never
-            expire.
+            {t('heroSubtitle')}
           </Text>
           {credits !== null ? (
             <View style={styles.balanceChip}>
               <Ionicons name="wallet-outline" size={13} color={brand.textMuted} />
               <Text style={styles.balanceText}>
-                Current balance: <Text style={styles.balanceNum}>{credits.toLocaleString()}</Text>
+                {t('currentBalance')} <Text style={styles.balanceNum}>{credits.toLocaleString()}</Text>
               </Text>
             </View>
           ) : null}
@@ -203,8 +214,7 @@ export default function Paywall() {
           <View style={styles.notice}>
             <Ionicons name="information-circle-outline" size={18} color={brand.textMuted} />
             <Text style={styles.noticeText}>
-              In-app purchases are only available in the installed WyberAi app, not this preview.
-              Install the app from Google Play to buy credits.
+              {t('iapUnavailable')}
             </Text>
           </View>
         ) : loading ? (
@@ -213,7 +223,7 @@ export default function Paywall() {
           <View style={styles.notice}>
             <Ionicons name="hourglass-outline" size={18} color={brand.textMuted} />
             <Text style={styles.noticeText}>
-              Credit packs aren’t available in your region yet. Please check back shortly.
+              {t('packsUnavailable')}
             </Text>
           </View>
         ) : (
@@ -222,13 +232,13 @@ export default function Paywall() {
             {subs.length > 0 ? (
               <View style={styles.section}>
                 <View style={styles.sectionHead}>
-                  <Text style={styles.sectionTitle}>Subscribe &amp; save</Text>
-                  <Text style={styles.sectionSub}>Fresh credits every month · cancel anytime</Text>
+                  <Text style={styles.sectionTitle}>{t('subscribeAndSave')}</Text>
+                  <Text style={styles.sectionSub}>{t('subscribeSub')}</Text>
                 </View>
                 {hasAnnual ? (
                   <View style={styles.periodToggle}>
-                    <PeriodPill label="Monthly" active={period === 'monthly'} onPress={() => setPeriod('monthly')} />
-                    <PeriodPill label="Annual — save" active={period === 'annual'} onPress={() => setPeriod('annual')} />
+                    <PeriodPill label={t('monthly')} active={period === 'monthly'} onPress={() => setPeriod('monthly')} />
+                    <PeriodPill label={t('annualSave')} active={period === 'annual'} onPress={() => setPeriod('annual')} />
                   </View>
                 ) : null}
                 {PLANS.filter((p) => !p.inrOnly || isINR).map((planFacts) => {
@@ -248,6 +258,7 @@ export default function Paywall() {
                       busy={busyId !== null}
                       buying={busyId === pkg.identifier}
                       onPress={() => onBuy(pkg)}
+                      t={t}
                     />
                   );
                 })}
@@ -259,9 +270,9 @@ export default function Paywall() {
               <View style={styles.section}>
                 <View style={styles.sectionHead}>
                   <Text style={styles.sectionTitle}>
-                    {subs.length > 0 ? 'Prefer a one-time top-up?' : 'Buy credits'}
+                    {subs.length > 0 ? t('preferTopUp') : t('buyCredits')}
                   </Text>
-                  <Text style={styles.sectionSub}>No subscription · credits never expire</Text>
+                  <Text style={styles.sectionSub}>{t('oneTimeSub')}</Text>
                 </View>
                 {packs.map((pkg) => {
                   const meta = metaFor(pkg);
@@ -270,8 +281,9 @@ export default function Paywall() {
                     meta && pkg.product.price > 0
                       ? `${pkg.product.currencyCode === 'INR' ? '₹' : ''}${(
                           (pkg.product.price / meta.credits) * 30
-                        ).toFixed(pkg.product.currencyCode === 'INR' ? 0 : 2)} / app build`
+                        ).toFixed(pkg.product.currencyCode === 'INR' ? 0 : 2)} ${t('perAppBuild')}`
                       : null;
+                  const badgeText = badgeLabel(meta?.badge ?? null, t);
                   return (
                     <Pressable
                       key={pkg.identifier}
@@ -283,9 +295,9 @@ export default function Paywall() {
                         pressed && styles.planPressed,
                       ]}
                     >
-                      {meta?.badge ? (
+                      {badgeText ? (
                         <View style={[styles.badge, highlighted && styles.badgePopular]}>
-                          <Text style={styles.badgeText}>{meta.badge}</Text>
+                          <Text style={styles.badgeText}>{badgeText}</Text>
                         </View>
                       ) : null}
                       <View style={styles.planRow}>
@@ -322,30 +334,28 @@ export default function Paywall() {
 
         {/* What credits buy */}
         <View style={styles.costCard}>
-          <Text style={styles.costTitle}>What credits buy</Text>
-          <CostRow icon="sparkles" label="New app, built from your prompt" cost="30" />
-          <CostRow icon="create-outline" label="Edit or new feature" cost="2–5" />
-          <CostRow icon="map-outline" label="Plan Mode blueprint" cost="5" />
-          <CostRow icon="color-palette-outline" label="Themes · publish · preview" cost="Free" />
+          <Text style={styles.costTitle}>{t('whatCreditsBy')}</Text>
+          <CostRow icon="sparkles" label={t('costNewApp')} cost="30" />
+          <CostRow icon="create-outline" label={t('costEditFeature')} cost="2–5" />
+          <CostRow icon="map-outline" label={t('costPlanMode')} cost="5" />
+          <CostRow icon="color-palette-outline" label={t('costThemesEtc')} cost={t('free')} />
         </View>
 
         {/* Trust row */}
         <View style={styles.trustRow}>
-          <Trust icon="logo-google-playstore" label="Google Play billing" />
-          <Trust icon="infinite-outline" label="Never expire" />
-          <Trust icon="sync-outline" label="Web + mobile" />
+          <Trust icon="logo-google-playstore" label={t('trustGooglePlay')} />
+          <Trust icon="infinite-outline" label={t('trustNeverExpire')} />
+          <Trust icon="sync-outline" label={t('trustWebMobile')} />
         </View>
 
         {!unavailable ? (
           <Pressable onPress={onRestore} hitSlop={8} style={styles.restore}>
-            <Text style={styles.restoreText}>Restore purchases</Text>
+            <Text style={styles.restoreText}>{t('restorePurchases')}</Text>
           </Pressable>
         ) : null}
 
         <Text style={styles.fine}>
-          Charged to your Google Play account. Credits work on web and mobile. Subscriptions renew
-          automatically until cancelled in Google Play (prepaid plans extend when you choose to renew);
-          one-time packs never expire. Manage or cancel anytime in your Play subscriptions.
+          {t('fineprint')}
         </Text>
       </ScrollView>
     </>
@@ -393,6 +403,7 @@ function SubCard({
   busy,
   buying,
   onPress,
+  t,
 }: {
   planFacts: (typeof PLANS)[number];
   pkg: PurchasesPackage;
@@ -401,6 +412,7 @@ function SubCard({
   busy: boolean;
   buying: boolean;
   onPress: () => void;
+  t: ReturnType<typeof useT<typeof PAYWALL_STRINGS.en>>;
 }) {
   // For annual, show the per-month equivalent under the yearly total.
   const perMonth = period === 'annual' ? pkg.product.pricePerMonthString : null;
@@ -412,7 +424,7 @@ function SubCard({
     >
       {highlighted ? (
         <View style={[styles.badge, styles.badgePopular]}>
-          <Text style={styles.badgeText}>RECOMMENDED</Text>
+          <Text style={styles.badgeText}>{t('badgeRecommended')}</Text>
         </View>
       ) : null}
       <View style={styles.planRow}>
@@ -432,7 +444,7 @@ function SubCard({
             <>
               <Text style={styles.planPrice}>{pkg.product.priceString}</Text>
               <Text style={styles.perBuild}>
-                {period === 'annual' ? (perMonth ? `${perMonth}/mo` : '/yr') : '/mo'}
+                {period === 'annual' ? (perMonth ? `${perMonth}${t('perMo')}` : t('perYr')) : t('perMo')}
               </Text>
             </>
           )}

@@ -13,6 +13,8 @@ import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { tap } from '@/lib/haptics';
 import { FadeInUp, staggerDelay } from '@/components/FadeInUp';
+import { useT } from '@/lib/i18n/useT';
+import { ONBOARDING_STRINGS } from '@/lib/i18n/dict/onboarding';
 import { brand, font, radius, space } from '@/lib/theme';
 
 export const ONBOARDED_KEY = 'wyber:onboarded';
@@ -21,29 +23,14 @@ export const ONBOARDED_KEY = 'wyber:onboarded';
 // the root layout only shows this once (AsyncStorage flag), and Skip is always
 // one tap away: nobody gets trapped in a tour.
 
-const SLIDES = [
-  {
-    icon: 'sparkles' as const,
-    title: 'Describe it.\nWatch it get built.',
-    body: 'Type your idea in plain words — "a booking site for my salon" — and AI writes the real app, live in front of you.',
-    accent: '#0EA5E9',
-  },
-  {
-    icon: 'rocket' as const,
-    title: 'Publish to a real URL\nin one tap',
-    body: 'Every app ships to yourname.wyberai.com with a security scan before it goes live. Share it, sell with it, grow on it.',
-    accent: '#22C55E',
-  },
-  {
-    icon: 'phone-portrait' as const,
-    title: 'Web and mobile.\nSame prompt.',
-    body: 'Build web apps and native-style mobile apps from one idea — from your phone, on the bus, whenever it strikes.',
-    accent: '#A855F7',
-  },
-];
-
 export function Onboarding({ onDone }: { onDone: () => void }) {
   const { width } = Dimensions.get('window');
+  const t = useT(ONBOARDING_STRINGS);
+  const SLIDES = [
+    { icon: 'sparkles' as const, title: t('slide1Title'), body: t('slide1Body'), accent: '#0EA5E9' },
+    { icon: 'rocket' as const, title: t('slide2Title'), body: t('slide2Body'), accent: '#22C55E' },
+    { icon: 'phone-portrait' as const, title: t('slide3Title'), body: t('slide3Body'), accent: '#A855F7' },
+  ];
   const [page, setPage] = useState(0);
   const scrollRef = useRef<ScrollView>(null);
   const last = page === SLIDES.length - 1;
@@ -76,7 +63,7 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
             Wyber<Text style={styles.wordmarkAccent}>Ai</Text>
           </Text>
           <Pressable onPress={finish} hitSlop={10}>
-            <Text style={styles.skip}>Skip</Text>
+            <Text style={styles.skip}>{t('skip')}</Text>
           </Pressable>
         </View>
 
@@ -112,7 +99,7 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
               </FadeInUp>
               {i === 0 ? (
                 <FadeInUp key={`demo-${page === 0}`} delay={staggerDelay(3)}>
-                  <TypeOnDemo active={page === 0} />
+                  <TypeOnDemo active={page === 0} t={t} />
                 </FadeInUp>
               ) : null}
             </View>
@@ -126,10 +113,10 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
         </View>
 
         <Pressable onPress={next} style={({ pressed }) => [styles.cta, pressed && styles.ctaPressed]}>
-          <Text style={styles.ctaText}>{last ? 'Start building free' : 'Next'}</Text>
+          <Text style={styles.ctaText}>{last ? t('startBuildingFree') : t('next')}</Text>
           <Ionicons name={last ? 'sparkles' : 'arrow-forward'} size={18} color={brand.onAccent} />
         </Pressable>
-        <Text style={styles.fine}>Free credits included — no card needed to start.</Text>
+        <Text style={styles.fine}>{t('freeCreditsNote')}</Text>
       </SafeAreaView>
     </View>
   );
@@ -137,10 +124,9 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
 
 // The 10-second product demo, no video needed: a prompt types itself out,
 // then build steps check off — the exact loop the user is about to live.
-const DEMO_PROMPT = 'a booking site for my salon';
-const DEMO_STEPS = ['Designing your pages', 'Writing the code', 'Ready to publish'];
-
-function TypeOnDemo({ active }: { active: boolean }) {
+function TypeOnDemo({ active, t }: { active: boolean; t: ReturnType<typeof useT<typeof ONBOARDING_STRINGS.en>> }) {
+  const demoPrompt = t('demoPrompt');
+  const demoSteps = [t('demoStep1'), t('demoStep2'), t('demoStep3')];
   const [chars, setChars] = useState(0);
   const [steps, setSteps] = useState(0);
 
@@ -150,11 +136,11 @@ function TypeOnDemo({ active }: { active: boolean }) {
     let s = 0;
     let timer: ReturnType<typeof setTimeout>;
     const tick = () => {
-      if (c < DEMO_PROMPT.length) {
+      if (c < demoPrompt.length) {
         c += 1;
         setChars(c);
         timer = setTimeout(tick, 45);
-      } else if (s < DEMO_STEPS.length) {
+      } else if (s < demoSteps.length) {
         s += 1;
         setSteps(s);
         timer = setTimeout(tick, 700);
@@ -171,6 +157,7 @@ function TypeOnDemo({ active }: { active: boolean }) {
     };
     timer = setTimeout(tick, 500);
     return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active]);
 
   return (
@@ -178,11 +165,11 @@ function TypeOnDemo({ active }: { active: boolean }) {
       <View style={demoStyles.promptRow}>
         <Ionicons name="sparkles" size={13} color={brand.accent} />
         <Text style={demoStyles.promptText}>
-          {DEMO_PROMPT.slice(0, chars)}
-          {chars < DEMO_PROMPT.length ? <Text style={demoStyles.caret}>▍</Text> : null}
+          {demoPrompt.slice(0, chars)}
+          {chars < demoPrompt.length ? <Text style={demoStyles.caret}>▍</Text> : null}
         </Text>
       </View>
-      {DEMO_STEPS.slice(0, steps).map((s) => (
+      {demoSteps.slice(0, steps).map((s) => (
         <View key={s} style={demoStyles.stepRow}>
           <Ionicons name="checkmark-circle" size={13} color={brand.success} />
           <Text style={demoStyles.stepText}>{s}</Text>

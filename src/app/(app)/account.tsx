@@ -25,16 +25,24 @@ import {
 import { tap } from '@/lib/haptics';
 import { Spinner } from '@/components/Spinner';
 import type { Profile } from '@/lib/types';
+import { useT } from '@/lib/i18n/useT';
+import { useLocale } from '@/lib/i18n/LocaleProvider';
+import { LOCALES, LOCALE_LABEL } from '@/lib/i18n/locales';
+import { ACCOUNT_STRINGS } from '@/lib/i18n/dict/account';
+import { BottomSheet } from '@/components/BottomSheet';
 import { brand, font, radius, space } from '@/lib/theme';
 
 export default function AccountScreen() {
   const { user, signOut, credits } = useSession();
   const router = useRouter();
+  const t = useT(ACCOUNT_STRINGS);
+  const { locale, setLocale } = useLocale();
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
   const [deleting, setDeleting] = useState(false);
   const [activity, setActivity] = useState<CreditEvent[]>([]);
   const [referral, setReferral] = useState<ReferralInfo | null>(null);
+  const [langOpen, setLangOpen] = useState(false);
 
   function onInvite() {
     if (!referral) return;
@@ -48,12 +56,12 @@ export default function AccountScreen() {
 
   function onDeleteAccount() {
     Alert.alert(
-      'Delete account?',
-      'This permanently deletes your account, all your apps, and your data. This cannot be undone.',
+      t('deleteAccountTitle'),
+      t('deleteAccountBody'),
       [
-        { text: 'Cancel', style: 'cancel' },
+        { text: t('cancel'), style: 'cancel' },
         {
-          text: 'Delete',
+          text: t('delete'),
           style: 'destructive',
           onPress: async () => {
             setDeleting(true);
@@ -110,8 +118,8 @@ export default function AccountScreen() {
         </View>
       ) : (
         <View style={styles.statRow}>
-          <StatCard label="Credits" value={String(credits ?? profile?.credits ?? '—')} icon="flash-outline" />
-          <StatCard label="Plan" value={capitalize(profile?.plan ?? 'free')} icon="ribbon-outline" />
+          <StatCard label={t('credits')} value={String(credits ?? profile?.credits ?? '—')} icon="flash-outline" />
+          <StatCard label={t('plan')} value={capitalize(profile?.plan ?? 'free')} icon="ribbon-outline" />
         </View>
       )}
 
@@ -124,11 +132,11 @@ export default function AccountScreen() {
             <Ionicons name="gift-outline" size={22} color={brand.accent} />
           </View>
           <View style={styles.inviteText}>
-            <Text style={styles.inviteTitle}>Invite friends, earn credits</Text>
+            <Text style={styles.inviteTitle}>{t('inviteTitle')}</Text>
             <Text style={styles.inviteSub}>
               {referral.count > 0
-                ? `${referral.count} joined · ${referral.creditsEarned} credits earned`
-                : 'They get 20 free credits, you get 50'}
+                ? t('inviteSubActive').replace('{count}', String(referral.count)).replace('{earned}', String(referral.creditsEarned))
+                : t('inviteSubIdle')}
             </Text>
           </View>
           <Ionicons name="share-outline" size={20} color={brand.accent} />
@@ -138,7 +146,7 @@ export default function AccountScreen() {
       <View style={styles.group}>
         <LinkRow
           icon="add-circle-outline"
-          label="Build a new app"
+          label={t('buildNewApp')}
           onPress={() => router.push('/new')}
         />
         <View style={styles.divider} />
@@ -147,13 +155,19 @@ export default function AccountScreen() {
             shows a calm "install the app" notice in Expo Go where IAP is off. */}
         <LinkRow
           icon="flash-outline"
-          label="Buy credits"
+          label={t('buyCredits')}
           onPress={() => router.push('/paywall')}
         />
         <View style={styles.divider} />
         <LinkRow
+          icon="language-outline"
+          label={t('language')}
+          onPress={() => setLangOpen(true)}
+        />
+        <View style={styles.divider} />
+        <LinkRow
           icon="help-circle-outline"
-          label="Help & support"
+          label={t('helpSupport')}
           onPress={() => Linking.openURL('https://wyberai.com/contact')}
         />
         <View style={styles.divider} />
@@ -161,7 +175,7 @@ export default function AccountScreen() {
             Play UGC). Published apps also carry a Report control on the web. */}
         <LinkRow
           icon="flag-outline"
-          label="Report content"
+          label={t('reportContent')}
           onPress={() =>
             Linking.openURL(
               'mailto:hello@wyberai.com?subject=Report%20content&body=Please%20describe%20the%20app%20or%20content%20you%27re%20reporting%20(a%20link%20helps):%0A%0A',
@@ -172,7 +186,7 @@ export default function AccountScreen() {
 
       {activity.length > 0 ? (
         <View style={styles.group}>
-          <Text style={styles.activityHeader}>Credit activity</Text>
+          <Text style={styles.activityHeader}>{t('creditActivity')}</Text>
           {activity.map((ev, i) => (
             <View key={ev.id}>
               {i > 0 ? <View style={styles.divider} /> : null}
@@ -182,24 +196,33 @@ export default function AccountScreen() {
         </View>
       ) : null}
 
-      <Text style={styles.disclosure}>
-        Apps are generated with AI and published by their creators. WyberAi reviews reported content
-        and acts within 24 hours.
-      </Text>
+      <Text style={styles.disclosure}>{t('disclosure')}</Text>
 
       <Pressable
         onPress={signOut}
         style={({ pressed }) => [styles.signOut, pressed && styles.signOutPressed]}
       >
         <Ionicons name="log-out-outline" size={18} color={brand.danger} />
-        <Text style={styles.signOutText}>Sign out</Text>
+        <Text style={styles.signOutText}>{t('signOut')}</Text>
       </Pressable>
+
+      <BottomSheet
+        visible={langOpen}
+        title={t('chooseLanguage')}
+        onClose={() => setLangOpen(false)}
+        actions={LOCALES.map((l) => ({
+          icon: l === locale ? 'checkmark-circle' : ('ellipse-outline' as const),
+          label: LOCALE_LABEL[l],
+          tint: l === locale ? brand.accent : brand.textFaint,
+          onPress: () => setLocale(l),
+        }))}
+      />
 
       <Pressable onPress={onDeleteAccount} disabled={deleting} hitSlop={8} style={styles.deleteAccount}>
         {deleting ? (
           <ActivityIndicator color={brand.textFaint} />
         ) : (
-          <Text style={styles.deleteAccountText}>Delete account</Text>
+          <Text style={styles.deleteAccountText}>{t('deleteAccount')}</Text>
         )}
       </Pressable>
 
@@ -248,19 +271,23 @@ function LinkRow({
 }
 
 // "topup:play:GPA.1234…" → "Credit pack purchase"; "build" → "App build"; etc.
-function describeReason(reason: string): { label: string; icon: keyof typeof Ionicons.glyphMap } {
+function describeReason(
+  reason: string,
+  t: ReturnType<typeof useT<typeof ACCOUNT_STRINGS.en>>,
+): { label: string; icon: keyof typeof Ionicons.glyphMap } {
   const r = reason.toLowerCase();
-  if (r.startsWith('topup')) return { label: 'Credit pack purchase', icon: 'card-outline' };
-  if (r.includes('refund')) return { label: 'Refund', icon: 'arrow-undo-outline' };
-  if (r.includes('referral')) return { label: 'Referral bonus', icon: 'gift-outline' };
-  if (r.includes('plan')) return { label: 'Plan Mode', icon: 'map-outline' };
-  if (r.includes('edit')) return { label: 'App edit', icon: 'create-outline' };
-  if (r.includes('build') || r.includes('generat')) return { label: 'App build', icon: 'sparkles-outline' };
-  return { label: reason.slice(0, 40) || 'Credit change', icon: 'swap-horizontal-outline' };
+  if (r.startsWith('topup')) return { label: t('reasonCreditPack'), icon: 'card-outline' };
+  if (r.includes('refund')) return { label: t('reasonRefund'), icon: 'arrow-undo-outline' };
+  if (r.includes('referral')) return { label: t('reasonReferral'), icon: 'gift-outline' };
+  if (r.includes('plan')) return { label: t('reasonPlanMode'), icon: 'map-outline' };
+  if (r.includes('edit')) return { label: t('reasonEdit'), icon: 'create-outline' };
+  if (r.includes('build') || r.includes('generat')) return { label: t('reasonBuild'), icon: 'sparkles-outline' };
+  return { label: reason.slice(0, 40) || t('reasonOther'), icon: 'swap-horizontal-outline' };
 }
 
 function ActivityRow({ ev }: { ev: CreditEvent }) {
-  const { label, icon } = describeReason(ev.reason);
+  const t = useT(ACCOUNT_STRINGS);
+  const { label, icon } = describeReason(ev.reason, t);
   const positive = ev.delta > 0;
   const date = new Date(ev.createdAt);
   const when = `${date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`;

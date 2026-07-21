@@ -6,6 +6,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { Spinner } from '@/components/Spinner';
 import { supabase } from '@/lib/supabase';
 import { buildPreview, buildMobilePreviewUrl, type FileMap } from '@/lib/api';
+import { useT } from '@/lib/i18n/useT';
+import { PREVIEW_SCREEN_STRINGS } from '@/lib/i18n/dict/preview-screen';
 import { brand, radius, space } from '@/lib/theme';
 
 type State =
@@ -17,6 +19,7 @@ type State =
 export default function PreviewScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
+  const t = useT(PREVIEW_SCREEN_STRINGS);
   const [state, setState] = useState<State>({ phase: 'building' });
   // The durable link to share is the PUBLISHED url; the preview url is transient.
   const [publishedUrl, setPublishedUrl] = useState<string | null>(null);
@@ -25,13 +28,9 @@ export default function PreviewScreen() {
     if (publishedUrl) {
       Share.share({ message: publishedUrl, url: publishedUrl });
     } else {
-      Alert.alert(
-        'Publish to share',
-        'Publish this app first to get a permanent link you can share. Open the project to publish it.',
-        [{ text: 'OK' }],
-      );
+      Alert.alert(t('publishToShare'), t('publishToShareBody'), [{ text: t('ok') }]);
     }
-  }, [publishedUrl]);
+  }, [publishedUrl, t]);
 
   const build = useCallback(async () => {
     if (!id) return;
@@ -74,7 +73,7 @@ export default function PreviewScreen() {
     <View style={styles.flex}>
       <Stack.Screen
         options={{
-          title: 'Preview',
+          title: t('preview'),
           // These detail screens live in the Tabs group (href:null), so there's
           // no automatic stack back button — Android back would jump to Home.
           // Add an explicit chevron back to the builder (router.back is
@@ -100,15 +99,15 @@ export default function PreviewScreen() {
       {state.phase === 'building' ? (
         <View style={styles.center}>
           <Spinner />
-          <Text style={styles.muted}>Building your preview…</Text>
+          <Text style={styles.muted}>{t('buildingPreview')}</Text>
         </View>
       ) : state.phase === 'error' ? (
         <View style={styles.center}>
           <Ionicons name="cube-outline" size={36} color={brand.textMuted} />
-          <Text style={styles.errorTitle}>Preview isn&apos;t ready yet</Text>
-          <Text style={styles.errorText}>{friendlyMessage(state.message)}</Text>
+          <Text style={styles.errorTitle}>{t('notReadyYet')}</Text>
+          <Text style={styles.errorText}>{friendlyMessage(state.message, t)}</Text>
           <Pressable onPress={build} style={styles.retry}>
-            <Text style={styles.retryText}>Try again</Text>
+            <Text style={styles.retryText}>{t('tryAgain')}</Text>
           </Pressable>
         </View>
       ) : (
@@ -137,18 +136,18 @@ export default function PreviewScreen() {
 
 // Turn a raw build/network message into one calm sentence. Nothing scary, no
 // stack traces — those never belong in front of the user.
-function friendlyMessage(raw: string): string {
+function friendlyMessage(raw: string, t: ReturnType<typeof useT<typeof PREVIEW_SCREEN_STRINGS.en>>): string {
   const m = (raw || '').toLowerCase();
   if (m.includes('nothing to preview') || m.includes('build something')) {
-    return 'Build something first, then preview it here.';
+    return t('buildSomethingFirst');
   }
   if (m.includes('network') || m.includes('failed to fetch') || m.includes('timeout')) {
-    return 'Couldn’t reach the preview service. Check your connection and try again.';
+    return t('couldntReachService');
   }
   if (m.includes('no app') || m.includes('no-entry')) {
-    return 'This project doesn’t have an app entry to preview yet.';
+    return t('noAppEntry');
   }
-  return 'We couldn’t build a preview for this version. Try again, or make another change first.';
+  return t('genericPreviewError');
 }
 
 const styles = StyleSheet.create({

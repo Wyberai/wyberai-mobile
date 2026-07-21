@@ -14,6 +14,9 @@ import { Ionicons } from '@expo/vector-icons';
 import { listVersions, saveFiles, type Version } from '@/lib/api';
 import { success, tap } from '@/lib/haptics';
 import { Spinner } from '@/components/Spinner';
+import { useT } from '@/lib/i18n/useT';
+import { VERSIONS_SCREEN_STRINGS } from '@/lib/i18n/dict/versions-screen';
+import { PROJECTS_STRINGS } from '@/lib/i18n/dict/projects';
 import { brand, radius, space } from '@/lib/theme';
 
 // Version history — every successful build snapshots the full file map to
@@ -22,6 +25,8 @@ import { brand, radius, space } from '@/lib/theme';
 export default function VersionsScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
+  const t = useT(VERSIONS_SCREEN_STRINGS);
+  const tp = useT(PROJECTS_STRINGS);
   const [versions, setVersions] = useState<Version[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -55,23 +60,23 @@ export default function VersionsScreen() {
     tap();
     const count = Object.keys(v.files).length;
     Alert.alert(
-      'Restore this version?',
-      `Your app goes back to "${v.label}" (${count} files). The current state stays in history, so you can return to it.`,
+      t('restoreThisVersion'),
+      t('restoreBody').replace('{label}', v.label).replace('{count}', String(count)),
       [
-        { text: 'Cancel', style: 'cancel' },
+        { text: t('cancel'), style: 'cancel' },
         {
-          text: 'Restore',
+          text: t('restore'),
           onPress: async () => {
             setRestoringId(v.id);
             try {
               await saveFiles(id, v.files!);
               success();
-              Alert.alert('Restored ✓', 'Your app is back to this version.', [
-                { text: 'Open builder', onPress: () => router.replace(`/build/${id}`) },
-                { text: 'Done' },
+              Alert.alert(t('restored'), t('restoredBody'), [
+                { text: t('openBuilder'), onPress: () => router.replace(`/build/${id}`) },
+                { text: t('done') },
               ]);
             } catch (e) {
-              Alert.alert('Restore failed', (e as Error).message);
+              Alert.alert(t('restoreFailed'), (e as Error).message);
             } finally {
               setRestoringId(null);
             }
@@ -83,7 +88,7 @@ export default function VersionsScreen() {
 
   return (
     <>
-      <Stack.Screen options={{ title: 'Version history', headerBackTitle: 'Back' }} />
+      <Stack.Screen options={{ title: t('versionHistory'), headerBackTitle: t('back') }} />
       {loading ? (
         <View style={styles.center}>
           <Spinner />
@@ -100,9 +105,9 @@ export default function VersionsScreen() {
           ListEmptyComponent={
             <View style={styles.center}>
               <Ionicons name="time-outline" size={40} color={brand.textFaint} />
-              <Text style={styles.emptyTitle}>{error ? 'Couldn’t load history' : 'No versions yet'}</Text>
+              <Text style={styles.emptyTitle}>{error ? t('couldntLoadHistory') : t('noVersionsYet')}</Text>
               <Text style={styles.emptyBody}>
-                {error ?? 'Every build saves a restorable snapshot here automatically.'}
+                {error ?? t('autoSnapshotBody')}
               </Text>
             </View>
           }
@@ -117,9 +122,9 @@ export default function VersionsScreen() {
                     {item.label}
                   </Text>
                   <Text style={styles.cardMeta}>
-                    {index === 0 ? 'Latest · ' : ''}
-                    {timeAgo(item.created_at)}
-                    {item.files ? ` · ${Object.keys(item.files).length} files` : ''}
+                    {index === 0 ? `${t('latest')} · ` : ''}
+                    {timeAgo(item.created_at, tp)}
+                    {item.files ? ` · ${t('filesCount').replace('{n}', String(Object.keys(item.files).length))}` : ''}
                   </Text>
                 </View>
               </View>
@@ -133,7 +138,7 @@ export default function VersionsScreen() {
                 ) : (
                   <>
                     <Ionicons name="arrow-undo-outline" size={15} color={brand.text} />
-                    <Text style={styles.restoreText}>Restore</Text>
+                    <Text style={styles.restoreText}>{t('restore')}</Text>
                   </>
                 )}
               </Pressable>
@@ -145,14 +150,14 @@ export default function VersionsScreen() {
   );
 }
 
-function timeAgo(iso: string): string {
+function timeAgo(iso: string, t: ReturnType<typeof useT<typeof PROJECTS_STRINGS.en>>): string {
   const diff = Date.now() - new Date(iso).getTime();
   const m = Math.floor(diff / 60000);
-  if (m < 1) return 'just now';
-  if (m < 60) return `${m}m ago`;
+  if (m < 1) return t('justNow');
+  if (m < 60) return t('minutesAgo').replace('{n}', String(m));
   const h = Math.floor(m / 60);
-  if (h < 24) return `${h}h ago`;
-  return `${Math.floor(h / 24)}d ago`;
+  if (h < 24) return t('hoursAgo').replace('{n}', String(h));
+  return t('daysAgo').replace('{n}', String(Math.floor(h / 24)));
 }
 
 const styles = StyleSheet.create({

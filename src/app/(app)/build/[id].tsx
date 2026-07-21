@@ -34,21 +34,27 @@ import {
 } from '@/lib/api';
 import { thunk, warn } from '@/lib/haptics';
 import { cleanStreamingDisplay, extractProgressLines } from '@/lib/file-parser';
+import { extractAgentEvents, deriveAgentLanes, type AgentLane } from '@/lib/agents/events';
+import { AGENT_TEAM_ENABLED } from '@/lib/agents/roster';
 import { BottomSheet } from '@/components/BottomSheet';
 import { BuildTheater } from '@/components/BuildTheater';
+import { AgentFeed } from '@/components/AgentFeed';
 import { ConnectorsSheet } from '@/components/ConnectorsSheet';
 import { MicButton } from '@/components/MicButton';
 import { PreviewRevealSheet, type RevealState } from '@/components/PreviewRevealSheet';
 import { SafeWidget } from '@/components/SafeWidget';
+import { useT } from '@/lib/i18n/useT';
+import { BUILD_SCREEN_STRINGS } from '@/lib/i18n/dict/build-screen';
 import { brand, radius, space } from '@/lib/theme';
 
 type Msg =
   | { id: string; role: 'user'; text: string }
-  | { id: string; role: 'assistant'; text: string; progress?: string[]; streaming?: boolean };
+  | { id: string; role: 'assistant'; text: string; progress?: string[]; agentLanes?: AgentLane[]; streaming?: boolean };
 
 export default function BuildScreen() {
   const { id, prompt: initialPrompt } = useLocalSearchParams<{ id: string; prompt?: string }>();
   const router = useRouter();
+  const t = useT(BUILD_SCREEN_STRINGS);
   // Credits come from the shared session context (single source, auto-refreshed
   // on app foreground) so a web top-up reflects here too.
   const { user, credits, refreshCredits } = useSession();
@@ -157,8 +163,11 @@ export default function BuildScreen() {
           onText: (full) => {
             const shown = cleanStreamingDisplay(full);
             const progress = extractProgressLines(full);
+            // Agent-team lanes: off (AGENT_TEAM_ENABLED=false) means the server
+            // never emits [agent:...] markers, so this is always a no-op then.
+            const agentLanes = AGENT_TEAM_ENABLED ? deriveAgentLanes(extractAgentEvents(full)) : undefined;
             setMessages((m) =>
-              m.map((x) => (x.id === aId && x.role === 'assistant' ? { ...x, text: shown, progress } : x)),
+              m.map((x) => (x.id === aId && x.role === 'assistant' ? { ...x, text: shown, progress, agentLanes } : x)),
             );
           },
           onDone: async (full) => {
@@ -172,7 +181,7 @@ export default function BuildScreen() {
                 setMessages((m) =>
                   m.map((x) =>
                     x.id === aId && x.role === 'assistant'
-                      ? { ...x, text: chatText || "That didn't produce an app — tap send to try again.", streaming: false }
+                      ? { ...x, text: chatText || t('thatDidntWork'), streaming: false }
                       : x,
                   ),
                 );
@@ -195,14 +204,14 @@ export default function BuildScreen() {
               setMessages((m) =>
                 m.map((x) =>
                   x.id === aId && x.role === 'assistant'
-                    ? { ...x, text: chatText || 'Done.', streaming: false }
+                    ? { ...x, text: chatText || t('done'), streaming: false }
                     : x,
                 ),
               );
               // Lovable-parity persistence: the assistant turn goes to chat
               // history, and the new file state becomes a restorable version.
               // Both best-effort — the build already succeeded.
-              saveMessage(id, 'assistant', chatText || 'Done.', { filesChanged: changed, clientId: aId });
+              saveMessage(id, 'assistant', chatText || t('done'), { filesChanged: changed, clientId: aId });
               saveVersion(id, next, userMsg.text);
               // The reveal: auto-render the freshly built app in the slide-up
               // sheet. Fire-and-forget — only runs when files actually changed.
@@ -239,18 +248,16 @@ export default function BuildScreen() {
             // Turn the raw "Build failed (402): Not enough credits…" into a calm
             // nudge to top up on the web (where credits are bought via Dodo).
             const outOfCredits = /\b402\b|not enough credits|insufficient/i.test(msg);
-            const shown = outOfCredits
-              ? "You're out of credits. Buy more to keep building — your credits work across web and mobile."
-              : msg;
+            const shown = outOfCredits ? t('outOfCreditsBody') : msg;
             setMessages((m) =>
               m.map((x) =>
                 x.id === aId && x.role === 'assistant' ? { ...x, text: shown, streaming: false } : x,
               ),
             );
             if (outOfCredits) {
-              Alert.alert('Out of credits', 'Buy more credits to keep building.', [
-                { text: 'Not now', style: 'cancel' },
-                { text: 'Buy credits', onPress: () => router.push('/paywall') },
+              Alert.alert(t('outOfCredits'), t('buyMoreCredits'), [
+                { text: t('notNow'), style: 'cancel' },
+                { text: t('buyCredits'), onPress: () => router.push('/paywall') },
               ]);
             }
             setBusy(false);
@@ -259,7 +266,7 @@ export default function BuildScreen() {
         },
       );
     },
-    [id, user?.id, busy, type, files, messages, refreshCredits, autoPreview, router],
+    [id, user?.id, busy, type, files, messages, refreshCredits, autoPreview, router, t],
   );
 
   // Cancel an in-flight build — abort the stream, unlock the UI, and close out
@@ -271,11 +278,11 @@ export default function BuildScreen() {
     setMessages((m) =>
       m.map((x) =>
         x.role === 'assistant' && x.streaming
-          ? { ...x, streaming: false, text: x.text || 'Build cancelled.' }
+          ? { ...x, streaming: false, text: x.text || t('buildCancelled') }
           : x,
       ),
     );
-  }, []);
+  }, [t]);
 
   // Abort any in-flight build if the user leaves the screen.
   useEffect(() => () => handleRef.current?.abort(), []);
@@ -296,9 +303,9 @@ export default function BuildScreen() {
       refreshCredits();
     } catch (e) {
       setPlanState('offer');
-      Alert.alert('Couldn’t plan', (e as Error).message, [{ text: 'OK' }]);
+      Alert.alert(t('couldntPlan'), (e as Error).message, [{ text: t('ok') }]);
     }
-  }, [type, refreshCredits]);
+  }, [type, refreshCredits, t]);
 
   const buildFromPlan = useCallback(() => {
     if (!plan) return;
@@ -331,7 +338,7 @@ export default function BuildScreen() {
     >
       <Stack.Screen
         options={{
-          title: name || 'Builder',
+          title: name || t('builder'),
           headerRight: () => (
             <View style={styles.headerRow}>
               {credits !== null ? (
@@ -348,7 +355,7 @@ export default function BuildScreen() {
               {hasFiles ? (
                 <Pressable onPress={() => router.push(`/preview/${id}`)} hitSlop={8} style={styles.previewBtn}>
                   <Ionicons name="play" size={14} color={brand.onAccent} />
-                  <Text style={styles.previewBtnText}>Preview</Text>
+                  <Text style={styles.previewBtnText}>{t('preview')}</Text>
                 </Pressable>
               ) : null}
             </View>
@@ -380,9 +387,9 @@ export default function BuildScreen() {
           ListEmptyComponent={
             <View style={styles.center}>
               <Ionicons name="sparkles-outline" size={36} color={brand.textFaint} />
-              <Text style={styles.emptyTitle}>Describe what to build</Text>
+              <Text style={styles.emptyTitle}>{t('describeWhatToBuild')}</Text>
               <Text style={styles.emptyBody}>
-                e.g. &quot;a habit tracker with streaks&quot; — {type === 'mobile' ? 'a mobile app' : 'a web app'}.
+                {t('emptyExample').replace('{target}', type === 'mobile' ? t('aMobileApp') : t('aWebApp'))}
               </Text>
             </View>
           }
@@ -394,7 +401,7 @@ export default function BuildScreen() {
       <View style={styles.inputBar}>
         <TextInput
           style={styles.input}
-          placeholder={hasFiles ? 'Describe a change…' : 'Describe your app…'}
+          placeholder={hasFiles ? t('describeChange') : t('describeApp')}
           placeholderTextColor={brand.textFaint}
           value={input}
           onChangeText={setInput}
@@ -405,7 +412,7 @@ export default function BuildScreen() {
         <Pressable
           onPress={busy ? cancel : () => run(input)}
           disabled={!busy && !input.trim()}
-          accessibilityLabel={busy ? 'Cancel build' : 'Send'}
+          accessibilityLabel={busy ? t('cancelBuild') : t('send')}
           style={({ pressed }) => [
             styles.send,
             !busy && !input.trim() && styles.sendDisabled,
@@ -423,32 +430,32 @@ export default function BuildScreen() {
 
       <BottomSheet
         visible={toolsOpen}
-        title="Project tools"
+        title={t('projectTools')}
         subtitle={name || undefined}
         onClose={() => setToolsOpen(false)}
         actions={[
           {
             icon: 'extension-puzzle-outline',
-            label: 'Connectors',
-            description: 'Add Stripe, OpenAI, Resend & 30+ more',
+            label: t('connectors'),
+            description: t('connectorsDesc'),
             onPress: () => setConnectorsOpen(true),
           },
           {
             icon: 'color-palette-outline',
-            label: 'Themes',
-            description: 'Restyle instantly — free, no credits',
+            label: t('themes'),
+            description: t('themesDesc'),
             onPress: () => router.push(`/themes/${id}`),
           },
           {
             icon: 'time-outline',
-            label: 'Version history',
-            description: 'Browse and restore earlier builds',
+            label: t('versionHistory'),
+            description: t('versionHistoryDesc'),
             onPress: () => router.push(`/versions/${id}`),
           },
           {
             icon: 'code-slash-outline',
-            label: 'View code',
-            description: 'Read every generated file',
+            label: t('viewCode'),
+            description: t('viewCodeDesc'),
             onPress: () => router.push(`/code/${id}`),
           },
         ]}
@@ -489,11 +496,13 @@ function PlanPanel({
   onJustBuild: () => void;
   onBuildFromPlan: () => void;
 }) {
+  const t = useT(BUILD_SCREEN_STRINGS);
+
   if (state === 'planning') {
     return (
       <View style={ps.center}>
         <ActivityIndicator color={brand.accent} />
-        <Text style={ps.planningText}>Thinking through the plan…</Text>
+        <Text style={ps.planningText}>{t('thinkingPlan')}</Text>
       </View>
     );
   }
@@ -502,17 +511,16 @@ function PlanPanel({
     return (
       <View style={ps.center}>
         <Ionicons name="map-outline" size={40} color={brand.accent} />
-        <Text style={ps.title}>Plan it first?</Text>
+        <Text style={ps.title}>{t('planItFirst')}</Text>
         <Text style={ps.body}>
-          See the features and screens before building a {type === 'mobile' ? 'mobile app' : 'web app'} —
-          fewer wasted builds.
+          {t('planItFirstBody').replace('{target}', type === 'mobile' ? t('aMobileApp') : t('aWebApp'))}
         </Text>
         <Pressable style={ps.primary} onPress={onSeePlan}>
           <Ionicons name="sparkles" size={16} color={brand.onAccent} />
-          <Text style={ps.primaryText}>Show me a plan · 5 credits</Text>
+          <Text style={ps.primaryText}>{t('showMePlan')}</Text>
         </Pressable>
         <Pressable style={ps.ghost} onPress={onJustBuild}>
-          <Text style={ps.ghostText}>Just build it</Text>
+          <Text style={ps.ghostText}>{t('justBuildIt')}</Text>
         </Pressable>
       </View>
     );
@@ -535,7 +543,7 @@ function PlanPanel({
         </View>
       ) : null}
 
-      <Text style={ps.sectionLabel}>FEATURES</Text>
+      <Text style={ps.sectionLabel}>{t('features')}</Text>
       {plan.features.map((f) => (
         <View key={f.id} style={ps.feature}>
           <Text style={ps.featureTitle}>{f.title}</Text>
@@ -555,10 +563,10 @@ function PlanPanel({
 
       <Pressable style={ps.primary} onPress={onBuildFromPlan}>
         <Ionicons name="hammer" size={16} color={brand.onAccent} />
-        <Text style={ps.primaryText}>Build this</Text>
+        <Text style={ps.primaryText}>{t('buildThis')}</Text>
       </Pressable>
       <Pressable style={ps.ghost} onPress={onJustBuild}>
-        <Text style={ps.ghostText}>Skip — build from my prompt</Text>
+        <Text style={ps.ghostText}>{t('skipBuildFromPrompt')}</Text>
       </Pressable>
     </ScrollView>
   );
@@ -628,6 +636,11 @@ function MessageBubble({ msg }: { msg: Msg }) {
   );
   return (
     <View style={[styles.bubble, styles.aiBubble]}>
+      {msg.agentLanes && msg.agentLanes.length > 0 ? (
+        <SafeWidget>
+          <AgentFeed lanes={msg.agentLanes} />
+        </SafeWidget>
+      ) : null}
       {progress.length > 0 && msg.streaming ? (
         <SafeWidget fallback={plainChecklist}>
           <BuildTheater progress={progress} />

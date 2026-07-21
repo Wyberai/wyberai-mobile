@@ -28,19 +28,24 @@ import { FadeInUp, staggerDelay } from '@/components/FadeInUp';
 import { MicButton } from '@/components/MicButton';
 import { SkeletonBox, SkeletonGalleryCard } from '@/components/Skeleton';
 import { projectUrl, type Project } from '@/lib/types';
+import { useT } from '@/lib/i18n/useT';
+import { HOME_STRINGS } from '@/lib/i18n/dict/home';
+import { PROJECTS_STRINGS } from '@/lib/i18n/dict/projects';
 import { brand, font, radius, space } from '@/lib/theme';
 
 // Home — the conversion surface. The prompt box IS the product: type an idea,
 // get a building app, no detours. Everything below it (starters, the live
 // community gallery, the continue card) exists to get a first prompt typed.
 
-const STARTERS: { label: string; prompt: string; icon: keyof typeof Ionicons.glyphMap }[] = [
-  { label: 'Booking site', prompt: 'A booking website for my salon with services, prices, and an appointment form', icon: 'calendar-outline' },
-  { label: 'Portfolio', prompt: 'A personal portfolio with my projects, an about section, and a contact form', icon: 'person-outline' },
-  { label: 'Online store', prompt: 'An online store for handmade candles with a product grid, cart, and checkout form', icon: 'cart-outline' },
-  { label: 'Habit tracker', prompt: 'A habit tracker with daily streaks, progress charts, and reminders', icon: 'checkmark-done-outline' },
-  { label: 'Restaurant', prompt: 'A restaurant website with the menu, photos, opening hours, and a reservation form', icon: 'restaurant-outline' },
-  { label: 'Event page', prompt: 'An event landing page with schedule, speakers, and an RSVP form', icon: 'ticket-outline' },
+// Starter prompt TEXT stays English (sent straight to the generator); only
+// the chip label is translated, via `t(s.labelKey)` at render time.
+const STARTERS: { labelKey: string; prompt: string; icon: keyof typeof Ionicons.glyphMap }[] = [
+  { labelKey: 'starterBooking', prompt: 'A booking website for my salon with services, prices, and an appointment form', icon: 'calendar-outline' },
+  { labelKey: 'starterPortfolio', prompt: 'A personal portfolio with my projects, an about section, and a contact form', icon: 'person-outline' },
+  { labelKey: 'starterStore', prompt: 'An online store for handmade candles with a product grid, cart, and checkout form', icon: 'cart-outline' },
+  { labelKey: 'starterHabit', prompt: 'A habit tracker with daily streaks, progress charts, and reminders', icon: 'checkmark-done-outline' },
+  { labelKey: 'starterRestaurant', prompt: 'A restaurant website with the menu, photos, opening hours, and a reservation form', icon: 'restaurant-outline' },
+  { labelKey: 'starterEvent', prompt: 'An event landing page with schedule, speakers, and an RSVP form', icon: 'ticket-outline' },
 ];
 
 // /api/suggestions categories → Ionicons. The server guarantees this enum;
@@ -58,6 +63,8 @@ const CATEGORY_ICONS: Record<string, keyof typeof Ionicons.glyphMap> = {
 
 export default function HomeScreen() {
   const router = useRouter();
+  const t = useT(HOME_STRINGS);
+  const tp = useT(PROJECTS_STRINGS);
   const { user } = useSession();
   const [prompt, setPrompt] = useState('');
   const [type, setType] = useState<ProjectType>('web');
@@ -126,14 +133,14 @@ export default function HomeScreen() {
           style={StyleSheet.absoluteFill}
         />
         <Text style={styles.heroKicker}>
-          {firstName ? `Hey ${firstName} —` : 'Hey —'}
+          {firstName ? t('heyName').replace('{name}', firstName) : t('heyPlain')}
         </Text>
-        <Text style={styles.heroTitle}>What will you{'\n'}build today?</Text>
+        <Text style={styles.heroTitle}>{t('heroTitle')}</Text>
 
         <View style={[styles.promptCard, promptFocused && styles.promptCardFocused]}>
           <TextInput
             style={styles.promptInput}
-            placeholder='Try "a booking site for my salon"…'
+            placeholder={t('promptPlaceholder')}
             placeholderTextColor={brand.textFaint}
             value={prompt}
             onChangeText={setPrompt}
@@ -147,13 +154,13 @@ export default function HomeScreen() {
               <TypePill
                 active={type === 'web'}
                 icon="globe-outline"
-                label="Web"
+                label={t('web')}
                 onPress={() => setType('web')}
               />
               <TypePill
                 active={type === 'mobile'}
                 icon="phone-portrait-outline"
-                label="Mobile"
+                label={t('mobile')}
                 onPress={() => setType('mobile')}
               />
             </View>
@@ -173,7 +180,7 @@ export default function HomeScreen() {
                 ) : (
                   <>
                     <Ionicons name="sparkles" size={15} color={brand.onAccent} />
-                    <Text style={styles.buildBtnText}>Build it</Text>
+                    <Text style={styles.buildBtnText}>{t('buildIt')}</Text>
                   </>
                 )}
               </Pressable>
@@ -184,7 +191,7 @@ export default function HomeScreen() {
 
         {/* Starter chips — AI "Today's ideas" when available, STARTERS otherwise */}
         {ideasPersonalized ? (
-          <Text style={styles.ideasKicker}>✦ FOR YOU TODAY</Text>
+          <Text style={styles.ideasKicker}>{t('forYouToday')}</Text>
         ) : null}
         <View style={styles.chips}>
           {ideas === null
@@ -197,7 +204,7 @@ export default function HomeScreen() {
                     prompt: s.prompt,
                     icon: CATEGORY_ICONS[s.category] ?? ('sparkles-outline' as const),
                   }))
-                : STARTERS
+                : STARTERS.map((s) => ({ label: t(s.labelKey), prompt: s.prompt, icon: s.icon }))
               ).map((s, i) => (
                 <FadeInUp key={s.label} delay={staggerDelay(i, 40)}>
                   <Pressable
@@ -230,12 +237,12 @@ export default function HomeScreen() {
             </View>
           )}
           <View style={styles.continueText}>
-            <Text style={styles.continueKicker}>CONTINUE BUILDING</Text>
+            <Text style={styles.continueKicker}>{t('continueBuilding')}</Text>
             <Text style={styles.continueName} numberOfLines={1}>
-              {latest.name || 'Untitled'}
+              {latest.name || tp('untitled')}
             </Text>
             <Text style={styles.continueMeta}>
-              {projectUrl(latest) ? '● Live' : 'Draft'} · updated {timeAgo(latest.updated_at)}
+              {projectUrl(latest) ? `● ${tp('live')}` : tp('draft')} · {tp('updatedPrefix').toLowerCase()} {timeAgo(latest.updated_at, tp)}
             </Text>
           </View>
           <Ionicons name="chevron-forward" size={18} color={brand.textFaint} />
@@ -245,17 +252,17 @@ export default function HomeScreen() {
 
       {/* Value props */}
       <FadeInUp delay={staggerDelay(2)} style={styles.props}>
-        <Prop icon="flash-outline" title="~60 seconds" body="to your first working version" />
-        <Prop icon="link-outline" title="Real URL" body="publish live in one tap" />
-        <Prop icon="shield-checkmark-outline" title="Security-scanned" body="before anything ships" />
+        <Prop icon="flash-outline" title={t('speedTitle')} body={t('speedBody')} />
+        <Prop icon="link-outline" title={t('urlTitle')} body={t('urlBody')} />
+        <Prop icon="shield-checkmark-outline" title={t('securityTitle')} body={t('securityBody')} />
       </FadeInUp>
 
       {/* Community showcase */}
       {galleryLoading ? (
         <View style={styles.gallerySection}>
           <View style={styles.galleryHeader}>
-            <Text style={styles.galleryTitle}>Built with WyberAi this week</Text>
-            <Text style={styles.gallerySub}>Real apps by real users — yours could be here</Text>
+            <Text style={styles.galleryTitle}>{t('galleryTitle')}</Text>
+            <Text style={styles.gallerySub}>{t('gallerySub')}</Text>
           </View>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.galleryRow}>
             {[0, 1, 2].map((i) => (
@@ -266,8 +273,8 @@ export default function HomeScreen() {
       ) : gallery.length > 0 ? (
         <FadeInUp delay={staggerDelay(3)} style={styles.gallerySection}>
           <View style={styles.galleryHeader}>
-            <Text style={styles.galleryTitle}>Built with WyberAi this week</Text>
-            <Text style={styles.gallerySub}>Real apps by real users — yours could be here</Text>
+            <Text style={styles.galleryTitle}>{t('galleryTitle')}</Text>
+            <Text style={styles.gallerySub}>{t('gallerySub')}</Text>
           </View>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.galleryRow}>
             {gallery.slice(0, 10).map((entry) => (
@@ -344,14 +351,14 @@ function Prop({ icon, title, body }: { icon: keyof typeof Ionicons.glyphMap; tit
   );
 }
 
-function timeAgo(iso: string): string {
+function timeAgo(iso: string, t: ReturnType<typeof useT<typeof PROJECTS_STRINGS.en>>): string {
   const diff = Date.now() - new Date(iso).getTime();
   const m = Math.floor(diff / 60000);
-  if (m < 1) return 'just now';
-  if (m < 60) return `${m}m ago`;
+  if (m < 1) return t('justNow');
+  if (m < 60) return t('minutesAgo').replace('{n}', String(m));
   const h = Math.floor(m / 60);
-  if (h < 24) return `${h}h ago`;
-  return `${Math.floor(h / 24)}d ago`;
+  if (h < 24) return t('hoursAgo').replace('{n}', String(h));
+  return t('daysAgo').replace('{n}', String(Math.floor(h / 24)));
 }
 
 const styles = StyleSheet.create({

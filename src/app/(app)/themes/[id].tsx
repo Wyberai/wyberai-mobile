@@ -17,6 +17,8 @@ import { paletteToTheme, writeAppTheme } from '@/lib/app-theme';
 import { tap } from '@/lib/haptics';
 import { useToast } from '@/components/Toast';
 import { Spinner } from '@/components/Spinner';
+import { useT } from '@/lib/i18n/useT';
+import { THEMES_SCREEN_STRINGS } from '@/lib/i18n/dict/themes-screen';
 import { brand, radius, space } from '@/lib/theme';
 
 // Themes — the same 30-palette, 0-credit retheme as the web editor. An app's
@@ -33,6 +35,7 @@ function hslColor(channels: string | undefined): string {
 
 export default function ThemesScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
+  const t = useT(THEMES_SCREEN_STRINGS);
   const showToast = useToast();
   const [files, setFiles] = useState<FileMap>({});
   const [loading, setLoading] = useState(true);
@@ -70,11 +73,11 @@ export default function ThemesScreen() {
       };
       await saveFiles(id, updated);
       setFiles(updated);
-      showToast('Theme applied');
+      showToast(t('themeApplied'));
       setAppliedId(pal.id);
       setTimeout(() => setAppliedId((prev) => (prev === pal.id ? null : prev)), 2000);
     } catch (e) {
-      Alert.alert('Couldn’t apply theme', (e as Error).message);
+      Alert.alert(t('couldntApply'), (e as Error).message);
     } finally {
       setApplyingId(null);
     }
@@ -83,7 +86,7 @@ export default function ThemesScreen() {
   if (loading) {
     return (
       <View style={styles.center}>
-        <Stack.Screen options={{ title: 'Themes' }} />
+        <Stack.Screen options={{ title: t('themes') }} />
         <Spinner />
       </View>
     );
@@ -91,23 +94,23 @@ export default function ThemesScreen() {
 
   return (
     <>
-      <Stack.Screen options={{ title: 'Themes', headerBackTitle: 'Back' }} />
+      <Stack.Screen options={{ title: t('themes'), headerBackTitle: t('back') }} />
       <ScrollView style={styles.scroll} contentContainerStyle={styles.content}>
         <View style={styles.headerRow}>
           <Text style={styles.headerText}>
-            {PALETTES.length} hand-tuned palettes · applied instantly
+            {t('palettesSummary').replace('{n}', String(PALETTES.length))}
           </Text>
           <View style={styles.freeChip}>
-            <Text style={styles.freeChipText}>0 credits</Text>
+            <Text style={styles.freeChipText}>{t('freeCredits')}</Text>
           </View>
         </View>
 
         {!themeable ? (
           <View style={styles.center}>
             <Ionicons name="color-palette-outline" size={40} color={brand.textFaint} />
-            <Text style={styles.emptyTitle}>No app to theme yet</Text>
+            <Text style={styles.emptyTitle}>{t('noAppYet')}</Text>
             <Text style={styles.emptyBody}>
-              Build something first — then swap its entire look here instantly, free.
+              {t('noAppYetBody')}
             </Text>
           </View>
         ) : (
@@ -143,7 +146,7 @@ export default function ThemesScreen() {
                   </View>
                   <View style={styles.cardFooter}>
                     <Text style={styles.cardLabel} numberOfLines={1}>
-                      {busy ? 'Applying…' : done ? '✓ Applied' : pal.label}
+                      {busy ? t('applying') : done ? t('applied') : pal.label}
                     </Text>
                     {busy ? (
                       <ActivityIndicator size="small" color={brand.accent} />
@@ -159,8 +162,7 @@ export default function ThemesScreen() {
 
         {themeable ? (
           <Text style={styles.fine}>
-            Themes rewrite your app’s design tokens — layout and features stay untouched. The
-            published version picks the new look up automatically on republish.
+            {t('fineprint')}
           </Text>
         ) : null}
       </ScrollView>

@@ -21,6 +21,9 @@ import type { FileMap } from '@/lib/api';
 import { tap, warn } from '@/lib/haptics';
 import { useToast } from '@/components/Toast';
 import { Spinner } from '@/components/Spinner';
+import { useT } from '@/lib/i18n/useT';
+import { PROJECT_DETAIL_STRINGS } from '@/lib/i18n/dict/project-detail';
+import { PROJECTS_STRINGS } from '@/lib/i18n/dict/projects';
 import { brand, font, radius, space } from '@/lib/theme';
 
 const SELECT =
@@ -29,6 +32,8 @@ const SELECT =
 export default function ProjectDetail() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
+  const t = useT(PROJECT_DETAIL_STRINGS);
+  const tp = useT(PROJECTS_STRINGS);
   const showToast = useToast();
   const [project, setProject] = useState<Project | null>(null);
   const [loading, setLoading] = useState(true);
@@ -61,24 +66,24 @@ export default function ProjectDetail() {
       const result = await publishProject(project.id, override);
       if (result.ok) {
         await load();
-        Alert.alert('Published 🎉', '🔒 Security-checked, then published live.', [
-          { text: 'Open', onPress: () => WebBrowser.openBrowserAsync(result.publishedUrl).catch(() => {}) },
-          { text: 'Share', onPress: () => Share.share({ message: result.publishedUrl, url: result.publishedUrl }).catch(() => {}) },
-          { text: 'Done', style: 'cancel' },
+        Alert.alert(t('published'), t('publishedBody'), [
+          { text: t('open'), onPress: () => WebBrowser.openBrowserAsync(result.publishedUrl).catch(() => {}) },
+          { text: t('share'), onPress: () => Share.share({ message: result.publishedUrl, url: result.publishedUrl }).catch(() => {}) },
+          { text: t('done'), style: 'cancel' },
         ]);
       } else if (result.blocked) {
         // Critical RLS leak — same "publish anyway" escape hatch as the web editor.
-        Alert.alert('Security check', result.message, [
-          { text: 'Cancel', style: 'cancel' },
-          { text: 'Publish anyway', style: 'destructive', onPress: () => doPublish(true) },
+        Alert.alert(t('securityCheck'), result.message, [
+          { text: t('cancel'), style: 'cancel' },
+          { text: t('publishAnyway'), style: 'destructive', onPress: () => doPublish(true) },
         ]);
       } else {
-        Alert.alert('Publish failed', result.error);
+        Alert.alert(t('publishFailed'), result.error);
       }
     } catch (e) {
       // A thrown network error / timeout must never strand the button as a
       // spinner (the "had to try twice" symptom).
-      Alert.alert('Publish failed', (e as Error).message || 'Something went wrong. Please try again.');
+      Alert.alert(t('publishFailed'), (e as Error).message || t('somethingWentWrong'));
     } finally {
       setPublishing(false);
     }
@@ -95,23 +100,23 @@ export default function ProjectDetail() {
         .maybeSingle();
       const files = (data?.files as FileMap) ?? {};
       if (Object.keys(files).length === 0) {
-        Alert.alert('Nothing to convert', 'Build something first, then convert it to a mobile app.');
+        Alert.alert(t('nothingToConvert'), t('nothingToConvertBody'));
         return;
       }
       const snack = await createSnack(project.name || 'WyberAi App', files);
       // The Snack URL is permanent + shareable: open it on a phone with Expo Go
       // to run the real native app, or in a browser to test the web player.
       Alert.alert(
-        'Ready to test on your phone 📱',
-        'Your app is now a mobile build. Open it in Expo Go to run it live on a real device, or share the link.',
+        t('readyToTest'),
+        t('readyToTestBody'),
         [
-          { text: 'Open in Expo', onPress: () => WebBrowser.openBrowserAsync(snack.snackUrl).catch(() => {}) },
-          { text: 'Share', onPress: () => Share.share({ message: snack.snackUrl, url: snack.snackUrl }).catch(() => {}) },
-          { text: 'Done', style: 'cancel' },
+          { text: t('openInExpo'), onPress: () => WebBrowser.openBrowserAsync(snack.snackUrl).catch(() => {}) },
+          { text: t('share'), onPress: () => Share.share({ message: snack.snackUrl, url: snack.snackUrl }).catch(() => {}) },
+          { text: t('done'), style: 'cancel' },
         ],
       );
     } catch (e) {
-      Alert.alert('Convert failed', (e as Error).message || 'Something went wrong. Please try again.');
+      Alert.alert(t('convertFailed'), (e as Error).message || t('somethingWentWrong'));
     } finally {
       setConverting(false);
     }
@@ -128,9 +133,9 @@ export default function ProjectDetail() {
     try {
       await renameProject(project.id, next);
       setProject({ ...project, name: next });
-      showToast('Renamed');
+      showToast(t('renamed'));
     } catch (e) {
-      Alert.alert('Rename failed', (e as Error).message);
+      Alert.alert(t('renameFailed'), (e as Error).message);
     } finally {
       setSavingName(false);
       setEditingName(false);
@@ -141,19 +146,19 @@ export default function ProjectDetail() {
     if (!project) return;
     warn();
     Alert.alert(
-      'Delete this app?',
-      `"${project.name || 'Untitled'}" and its full history will be permanently deleted. This cannot be undone.`,
+      t('deleteThisApp'),
+      t('deleteAppBody').replace('{name}', project.name || t('untitled')),
       [
-        { text: 'Cancel', style: 'cancel' },
+        { text: t('cancel'), style: 'cancel' },
         {
-          text: 'Delete',
+          text: t('delete'),
           style: 'destructive',
           onPress: async () => {
             try {
               await deleteProject(project.id);
               router.back();
             } catch (e) {
-              Alert.alert('Delete failed', (e as Error).message);
+              Alert.alert(t('deleteFailed'), (e as Error).message);
             }
           },
         },
@@ -163,10 +168,10 @@ export default function ProjectDetail() {
 
   function doUnpublish() {
     if (!project) return;
-    Alert.alert('Take offline?', 'This removes the live link. You can republish anytime.', [
-      { text: 'Cancel', style: 'cancel' },
+    Alert.alert(t('takeOffline'), t('takeOfflineBody'), [
+      { text: t('cancel'), style: 'cancel' },
       {
-        text: 'Take offline',
+        text: t('takeOfflineAction'),
         style: 'destructive',
         onPress: async () => {
           setPublishing(true);
@@ -174,7 +179,7 @@ export default function ProjectDetail() {
             await unpublishProject(project.id);
             await load();
           } catch (e: any) {
-            Alert.alert('Failed', e?.message ?? String(e));
+            Alert.alert(t('failed'), e?.message ?? String(e));
           } finally {
             setPublishing(false);
           }
@@ -185,14 +190,14 @@ export default function ProjectDetail() {
 
   return (
     <>
-      <Stack.Screen options={{ title: project?.name ?? 'Project', headerBackTitle: 'Projects' }} />
+      <Stack.Screen options={{ title: project?.name ?? t('project'), headerBackTitle: t('projects') }} />
       {loading ? (
         <View style={styles.center}>
           <Spinner />
         </View>
       ) : !project ? (
         <View style={styles.center}>
-          <Text style={styles.muted}>Project not found.</Text>
+          <Text style={styles.muted}>{t('projectNotFound')}</Text>
         </View>
       ) : (
         <ScrollView style={styles.scroll} contentContainerStyle={styles.content}>
@@ -229,7 +234,7 @@ export default function ProjectDetail() {
             </View>
           ) : (
             <View style={styles.titleRow}>
-              <Text style={styles.title}>{project.name || 'Untitled'}</Text>
+              <Text style={styles.title}>{project.name || t('untitled')}</Text>
               <Pressable
                 onPress={() => {
                   tap();
@@ -247,10 +252,10 @@ export default function ProjectDetail() {
           ) : null}
 
           <View style={styles.metaCard}>
-            <MetaRow label="Status" value={live ? 'Live' : 'Draft'} />
-            <MetaRow label="Framework" value={project.framework} />
-            {live ? <MetaRow label="URL" value={live.replace(/^https?:\/\//, '')} /> : null}
-            <MetaRow label="Updated" value={new Date(project.updated_at).toLocaleString()} />
+            <MetaRow label={t('status')} value={live ? tp('live') : tp('draft')} />
+            <MetaRow label={t('framework')} value={project.framework} />
+            {live ? <MetaRow label={t('url')} value={live.replace(/^https?:\/\//, '')} /> : null}
+            <MetaRow label={t('updated')} value={new Date(project.updated_at).toLocaleString()} />
           </View>
 
           <Pressable
@@ -258,36 +263,36 @@ export default function ProjectDetail() {
             style={({ pressed }) => [styles.primary, pressed && styles.primaryPressed]}
           >
             <Ionicons name="construct-outline" size={18} color={brand.onAccent} />
-            <Text style={styles.primaryText}>Edit in builder</Text>
+            <Text style={styles.primaryText}>{t('editInBuilder')}</Text>
           </Pressable>
           <Pressable
             onPress={() => router.push(`/preview/${project.id}`)}
             style={({ pressed }) => [styles.secondary, pressed && styles.secondaryPressed]}
           >
             <Ionicons name="play-outline" size={18} color={brand.text} />
-            <Text style={styles.secondaryText}>Preview build</Text>
+            <Text style={styles.secondaryText}>{t('previewBuild')}</Text>
           </Pressable>
 
           {/* Project tools — Lovable-parity: source, history, instant themes. */}
           <View style={styles.toolsCard}>
             <ToolRow
               icon="color-palette-outline"
-              label="Themes"
-              hint="Retheme instantly · free"
+              label={t('themes')}
+              hint={t('themesHint')}
               onPress={() => router.push(`/themes/${project.id}`)}
             />
             <View style={styles.toolDivider} />
             <ToolRow
               icon="time-outline"
-              label="Version history"
-              hint="Restore any build"
+              label={t('versionHistory')}
+              hint={t('versionHistoryHint')}
               onPress={() => router.push(`/versions/${project.id}`)}
             />
             <View style={styles.toolDivider} />
             <ToolRow
               icon="code-slash-outline"
-              label="View code"
-              hint="Every file, yours"
+              label={t('viewCode')}
+              hint={t('viewCodeHint')}
               onPress={() => router.push(`/code/${project.id}`)}
             />
           </View>
@@ -302,12 +307,12 @@ export default function ProjectDetail() {
               {publishing ? (
                 <>
                   <ActivityIndicator color={brand.onAccent} />
-                  <Text style={styles.primaryText}>Publishing…</Text>
+                  <Text style={styles.primaryText}>{t('publishing')}</Text>
                 </>
               ) : (
                 <>
                   <Ionicons name="rocket-outline" size={18} color={brand.onAccent} />
-                  <Text style={styles.primaryText}>{live ? 'Republish' : 'Publish'}</Text>
+                  <Text style={styles.primaryText}>{live ? t('republish') : t('publish')}</Text>
                 </>
               )}
             </Pressable>
@@ -320,14 +325,14 @@ export default function ProjectDetail() {
                 style={({ pressed }) => [styles.secondary, pressed && styles.secondaryPressed]}
               >
                 <Ionicons name="open-outline" size={18} color={brand.text} />
-                <Text style={styles.secondaryText}>Open live app</Text>
+                <Text style={styles.secondaryText}>{t('openLiveApp')}</Text>
               </Pressable>
               <Pressable
                 onPress={() => Share.share({ message: live, url: live })}
                 style={({ pressed }) => [styles.secondary, pressed && styles.secondaryPressed]}
               >
                 <Ionicons name="share-outline" size={18} color={brand.text} />
-                <Text style={styles.secondaryText}>Share</Text>
+                <Text style={styles.secondaryText}>{t('share')}</Text>
               </Pressable>
               {!isMobile ? (
                 <Pressable
@@ -336,7 +341,7 @@ export default function ProjectDetail() {
                   style={({ pressed }) => [styles.secondary, pressed && styles.secondaryPressed]}
                 >
                   <Ionicons name="cloud-offline-outline" size={18} color={brand.danger} />
-                  <Text style={[styles.secondaryText, { color: brand.danger }]}>Take offline</Text>
+                  <Text style={[styles.secondaryText, { color: brand.danger }]}>{t('takeOfflineAction')}</Text>
                 </Pressable>
               ) : null}
             </>
@@ -347,7 +352,7 @@ export default function ProjectDetail() {
                 style={({ pressed }) => [styles.secondary, pressed && styles.secondaryPressed]}
               >
                 <Ionicons name="globe-outline" size={18} color={brand.text} />
-                <Text style={styles.secondaryText}>Test in browser</Text>
+                <Text style={styles.secondaryText}>{t('testInBrowser')}</Text>
               </Pressable>
               <Pressable
                 onPress={() => {
@@ -357,7 +362,7 @@ export default function ProjectDetail() {
                 style={({ pressed }) => [styles.secondary, pressed && styles.secondaryPressed]}
               >
                 <Ionicons name="share-outline" size={18} color={brand.text} />
-                <Text style={styles.secondaryText}>Share preview link</Text>
+                <Text style={styles.secondaryText}>{t('sharePreviewLink')}</Text>
               </Pressable>
               <Pressable
                 onPress={doConvert}
@@ -367,20 +372,19 @@ export default function ProjectDetail() {
                 {converting ? (
                   <>
                     <ActivityIndicator color={brand.onAccent} />
-                    <Text style={styles.primaryText}>Converting…</Text>
+                    <Text style={styles.primaryText}>{t('converting')}</Text>
                   </>
                 ) : (
                   <>
                     <Ionicons name="phone-portrait-outline" size={18} color={brand.onAccent} />
-                    <Text style={styles.primaryText}>Convert to mobile app</Text>
+                    <Text style={styles.primaryText}>{t('convertToMobile')}</Text>
                   </>
                 )}
               </Pressable>
               <View style={styles.notice}>
                 <Ionicons name="information-circle-outline" size={18} color={brand.textMuted} />
                 <Text style={styles.noticeText}>
-                  Test in browser opens a shareable, phone-framed link. When it&apos;s ready, convert
-                  it to a mobile app to test on a real phone (Expo Go) and ship to the stores.
+                  {t('mobileNotice')}
                 </Text>
               </View>
             </>
@@ -388,7 +392,7 @@ export default function ProjectDetail() {
 
           <Pressable onPress={doDelete} hitSlop={8} style={styles.deleteRow}>
             <Ionicons name="trash-outline" size={15} color={brand.danger} />
-            <Text style={styles.deleteText}>Delete app</Text>
+            <Text style={styles.deleteText}>{t('deleteApp')}</Text>
           </Pressable>
         </ScrollView>
       )}

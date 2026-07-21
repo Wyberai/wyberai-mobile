@@ -14,10 +14,13 @@ import {
 import { Stack, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { createProject, type ProjectType } from '@/lib/api';
+import { useT } from '@/lib/i18n/useT';
+import { NEW_APP_STRINGS } from '@/lib/i18n/dict/new-app';
 import { brand, radius, space } from '@/lib/theme';
 
 export default function NewAppScreen() {
   const router = useRouter();
+  const t = useT(NEW_APP_STRINGS);
   const [type, setType] = useState<ProjectType>('web');
   const [prompt, setPrompt] = useState('');
   const [busy, setBusy] = useState(false);
@@ -53,25 +56,25 @@ export default function NewAppScreen() {
 
   return (
     <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-      <Stack.Screen options={{ title: 'New app' }} />
+      <Stack.Screen options={{ title: t('screenTitle') }} />
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-        <Text style={styles.label}>What are you building?</Text>
+        <Text style={styles.label}>{t('whatBuilding')}</Text>
         <View style={styles.segment}>
           <SegOption
             active={type === 'web'}
             icon="globe-outline"
-            label="Web app"
+            label={t('webApp')}
             onPress={() => setType('web')}
           />
           <SegOption
             active={type === 'mobile'}
             icon="phone-portrait-outline"
-            label="Mobile app"
+            label={t('mobileApp')}
             onPress={() => setType('mobile')}
           />
         </View>
 
-        <Text style={[styles.label, { marginTop: space.lg }]}>Describe it</Text>
+        <Text style={[styles.label, { marginTop: space.lg }]}>{t('describeIt')}</Text>
         <Animated.View
           style={{
             transform: [{ translateX: shake.interpolate({ inputRange: [-1, 1], outputRange: [-6, 6] }) }],
@@ -79,11 +82,7 @@ export default function NewAppScreen() {
         >
           <TextInput
             style={[styles.textarea, focused && styles.textareaFocused]}
-            placeholder={
-              type === 'mobile'
-                ? 'A meditation app with a timer and daily streaks…'
-                : 'A landing page for my coffee shop with a menu…'
-            }
+            placeholder={type === 'mobile' ? t('placeholderMobile') : t('placeholderWeb')}
             placeholderTextColor={brand.textFaint}
             value={prompt}
             onChangeText={setPrompt}
@@ -111,15 +110,12 @@ export default function NewAppScreen() {
           ) : (
             <>
               <Ionicons name="sparkles" size={18} color={brand.onAccent} />
-              <Text style={styles.ctaText}>Start building</Text>
+              <Text style={styles.ctaText}>{t('startBuilding')}</Text>
             </>
           )}
         </Pressable>
 
-        <Text style={styles.hint}>
-          Building spends credits, same as on the web. You can keep refining in chat after the first
-          version.
-        </Text>
+        <Text style={styles.hint}>{t('creditsHint')}</Text>
       </ScrollView>
     </KeyboardAvoidingView>
   );

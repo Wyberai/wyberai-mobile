@@ -15,6 +15,8 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import * as AppleAuthentication from 'expo-apple-authentication';
 import { useSession } from '@/ctx/session';
+import { useT } from '@/lib/i18n/useT';
+import { SIGN_IN_STRINGS } from '@/lib/i18n/dict/sign-in';
 import { brand, font, radius, space } from '@/lib/theme';
 
 // The app-review account signs in with a password instead of an emailed OTP
@@ -32,6 +34,7 @@ const ENABLE_GITHUB = process.env.EXPO_PUBLIC_ENABLE_GITHUB !== 'false';
 const ENABLE_APPLE = process.env.EXPO_PUBLIC_ENABLE_APPLE === 'true';
 
 export default function SignIn() {
+  const t = useT(SIGN_IN_STRINGS);
   const { signInWithProvider, signInWithApple, sendCode, verifyCode, signInWithPassword } = useSession();
   const [step, setStep] = useState<'email' | 'code' | 'password'>('email');
   const [email, setEmail] = useState('');
@@ -121,8 +124,8 @@ export default function SignIn() {
 
           {step === 'email' ? (
             <>
-              <Text style={styles.title}>Sign in</Text>
-              <Text style={styles.subtitle}>Continue building with WyberAi.</Text>
+              <Text style={styles.title}>{t('signIn')}</Text>
+              <Text style={styles.subtitle}>{t('continueBuilding')}</Text>
 
               {showApple && !appleBusy ? (
                 <AppleAuthentication.AppleAuthenticationButton
@@ -140,7 +143,7 @@ export default function SignIn() {
 
               {ENABLE_GOOGLE ? (
                 <OAuthButton
-                  label="Continue with Google"
+                  label={t('continueWithGoogle')}
                   icon="logo-google"
                   busy={oauthBusy === 'google'}
                   disabled={oauthBusy !== null || busy}
@@ -149,7 +152,7 @@ export default function SignIn() {
               ) : null}
               {ENABLE_GITHUB ? (
                 <OAuthButton
-                  label="Continue with GitHub"
+                  label={t('continueWithGithub')}
                   icon="logo-github"
                   busy={oauthBusy === 'github'}
                   disabled={oauthBusy !== null || busy}
@@ -160,7 +163,7 @@ export default function SignIn() {
               {anySocial ? (
                 <View style={styles.dividerRow}>
                   <View style={styles.dividerLine} />
-                  <Text style={styles.dividerText}>or with email</Text>
+                  <Text style={styles.dividerText}>{t('orWithEmail')}</Text>
                   <View style={styles.dividerLine} />
                 </View>
               ) : null}
@@ -189,7 +192,7 @@ export default function SignIn() {
               ) : null}
 
               <PrimaryButton
-                label="Email me a code"
+                label={t('emailMeCode')}
                 onPress={onContinue}
                 disabled={!emailValid || busy || oauthBusy !== null}
                 busy={busy}
@@ -197,12 +200,12 @@ export default function SignIn() {
             </>
           ) : step === 'code' ? (
             <>
-              <Text style={styles.title}>Enter code</Text>
-              <Text style={styles.subtitle}>We emailed a code to {email}. Enter it below.</Text>
+              <Text style={styles.title}>{t('enterCode')}</Text>
+              <Text style={styles.subtitle}>{t('weEmailedCode').replace('{email}', email)}</Text>
 
               <TextInput
                 style={[styles.input, styles.codeInput, inputFocused && styles.inputFocused]}
-                placeholder="Enter code"
+                placeholder={t('enterCode')}
                 placeholderTextColor={brand.textFaint}
                 keyboardType="number-pad"
                 autoComplete="sms-otp"
@@ -224,7 +227,7 @@ export default function SignIn() {
               ) : null}
 
               <PrimaryButton
-                label="Verify & continue"
+                label={t('verifyContinue')}
                 onPress={onVerify}
                 disabled={code.trim().length < 6 || busy}
                 busy={busy}
@@ -239,17 +242,17 @@ export default function SignIn() {
                 disabled={busy}
                 hitSlop={8}
               >
-                <Text style={styles.link}>Use a different email</Text>
+                <Text style={styles.link}>{t('useDifferentEmail')}</Text>
               </Pressable>
             </>
           ) : (
             <>
-              <Text style={styles.title}>Reviewer sign-in</Text>
-              <Text style={styles.subtitle}>Enter the password for {email}</Text>
+              <Text style={styles.title}>{t('reviewerSignIn')}</Text>
+              <Text style={styles.subtitle}>{t('enterPasswordFor').replace('{email}', email)}</Text>
 
               <TextInput
                 style={[styles.input, inputFocused && styles.inputFocused]}
-                placeholder="Password"
+                placeholder={t('password')}
                 placeholderTextColor={brand.textFaint}
                 secureTextEntry
                 autoCapitalize="none"
@@ -270,7 +273,7 @@ export default function SignIn() {
               ) : null}
 
               <PrimaryButton
-                label="Sign in"
+                label={t('signIn')}
                 onPress={onPasswordSignIn}
                 disabled={password.length < 6 || busy}
                 busy={busy}
@@ -285,7 +288,7 @@ export default function SignIn() {
                 disabled={busy}
                 hitSlop={8}
               >
-                <Text style={styles.link}>Use a different email</Text>
+                <Text style={styles.link}>{t('useDifferentEmail')}</Text>
               </Pressable>
             </>
           )}

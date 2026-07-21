@@ -15,6 +15,8 @@ import { FadeInUp, staggerDelay } from '@/components/FadeInUp';
 import { SkeletonProjectCard } from '@/components/Skeleton';
 import { supabase } from '@/lib/supabase';
 import { projectUrl, type Project } from '@/lib/types';
+import { useT } from '@/lib/i18n/useT';
+import { PROJECTS_STRINGS } from '@/lib/i18n/dict/projects';
 import { brand, radius, space } from '@/lib/theme';
 
 const SELECT =
@@ -22,6 +24,7 @@ const SELECT =
 
 export default function ProjectsScreen() {
   const router = useRouter();
+  const t = useT(PROJECTS_STRINGS);
   const { user } = useSession();
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
@@ -80,15 +83,15 @@ export default function ProjectsScreen() {
       ListEmptyComponent={
         <View style={styles.center}>
           <Ionicons name="cube-outline" size={40} color={brand.textFaint} />
-          <Text style={styles.emptyTitle}>No projects yet</Text>
-          <Text style={styles.emptyBody}>{error ?? 'Build your first app right here on your phone.'}</Text>
+          <Text style={styles.emptyTitle}>{t('noProjectsYet')}</Text>
+          <Text style={styles.emptyBody}>{error ?? t('buildFirstApp')}</Text>
           {!error ? (
             <Pressable
               onPress={() => router.push('/new')}
               style={({ pressed }) => [styles.emptyCta, pressed && styles.emptyCtaPressed]}
             >
               <Ionicons name="sparkles" size={16} color={brand.onAccent} />
-              <Text style={styles.emptyCtaText}>New app</Text>
+              <Text style={styles.emptyCtaText}>{t('newApp')}</Text>
             </Pressable>
           ) : null}
         </View>
@@ -103,6 +106,7 @@ export default function ProjectsScreen() {
 }
 
 function ProjectCard({ project, onPress }: { project: Project; onPress: () => void }) {
+  const t = useT(PROJECTS_STRINGS);
   const live = projectUrl(project);
   return (
     <Pressable
@@ -119,11 +123,11 @@ function ProjectCard({ project, onPress }: { project: Project; onPress: () => vo
       ) : null}
       <View style={styles.cardHeader}>
         <Text style={styles.cardTitle} numberOfLines={1}>
-          {project.name || 'Untitled'}
+          {project.name || t('untitled')}
         </Text>
         <View style={[styles.badge, live ? styles.badgeLive : styles.badgeDraft]}>
           <Text style={[styles.badgeText, live ? styles.badgeTextLive : styles.badgeTextDraft]}>
-            {live ? 'Live' : 'Draft'}
+            {live ? t('live') : t('draft')}
           </Text>
         </View>
       </View>
@@ -135,21 +139,21 @@ function ProjectCard({ project, onPress }: { project: Project; onPress: () => vo
       <View style={styles.cardMeta}>
         <Text style={styles.metaText}>{project.framework}</Text>
         <Text style={styles.metaDot}>·</Text>
-        <Text style={styles.metaText}>Updated {timeAgo(project.updated_at)}</Text>
+        <Text style={styles.metaText}>{t('updatedPrefix')} {timeAgo(project.updated_at, t)}</Text>
       </View>
     </Pressable>
   );
 }
 
-function timeAgo(iso: string): string {
+function timeAgo(iso: string, t: ReturnType<typeof useT<typeof PROJECTS_STRINGS.en>>): string {
   const diff = Date.now() - new Date(iso).getTime();
   const m = Math.floor(diff / 60000);
-  if (m < 1) return 'just now';
-  if (m < 60) return `${m}m ago`;
+  if (m < 1) return t('justNow');
+  if (m < 60) return t('minutesAgo').replace('{n}', String(m));
   const h = Math.floor(m / 60);
-  if (h < 24) return `${h}h ago`;
+  if (h < 24) return t('hoursAgo').replace('{n}', String(h));
   const d = Math.floor(h / 24);
-  return `${d}d ago`;
+  return t('daysAgo').replace('{n}', String(d));
 }
 
 const styles = StyleSheet.create({

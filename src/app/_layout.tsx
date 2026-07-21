@@ -6,6 +6,7 @@ import { useFonts } from 'expo-font';
 import * as SplashScreen from 'expo-splash-screen';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { SessionProvider, useSession } from '@/ctx/session';
+import { LocaleProvider } from '@/lib/i18n/LocaleProvider';
 import { Spinner } from '@/components/Spinner';
 import { Onboarding, ONBOARDED_KEY } from '@/components/Onboarding';
 import { ToastProvider } from '@/components/Toast';
@@ -26,12 +27,14 @@ export default function RootLayout() {
   if (!fontsLoaded) return null;
 
   return (
-    <SessionProvider>
-      <ToastProvider>
-        <StatusBar style="light" />
-        <RootNavigator />
-      </ToastProvider>
-    </SessionProvider>
+    <LocaleProvider>
+      <SessionProvider>
+        <ToastProvider>
+          <StatusBar style="light" />
+          <RootNavigator />
+        </ToastProvider>
+      </SessionProvider>
+    </LocaleProvider>
   );
 }
 

@@ -17,6 +17,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { CONNECTORS, connectorConnected, type Connector } from '@/lib/connectors';
 import { listSecretNames, saveSecret } from '@/lib/api';
 import { tap, success } from '@/lib/haptics';
+import { useT } from '@/lib/i18n/useT';
+import { CONNECTORS_SHEET_STRINGS } from '@/lib/i18n/dict/connectors-sheet';
 import { brand, font, radius, space } from '@/lib/theme';
 
 // Add an integration to the current build from the phone: pick a service, drop
@@ -34,6 +36,7 @@ export function ConnectorsSheet({
   onRun: (prompt: string) => void;
 }) {
   const insets = useSafeAreaInsets();
+  const t = useT(CONNECTORS_SHEET_STRINGS);
   const [search, setSearch] = useState('');
   const [vault, setVault] = useState<Set<string>>(new Set());
   const [selected, setSelected] = useState<Connector | null>(null);
@@ -85,7 +88,7 @@ export function ConnectorsSheet({
     const keys = selected.secretKeys ?? [];
     const missing = keys.filter((k) => !(keyValues[k.name] || '').trim());
     if (missing.length) {
-      Alert.alert('Add your key', `Enter ${missing.map((k) => k.name).join(', ')} to connect ${selected.name}.`);
+      Alert.alert(t('addYourKey'), t('enterKeysToConnect').replace('{keys}', missing.map((k) => k.name).join(', ')).replace('{name}', selected.name));
       return;
     }
     setSaving(true);
@@ -94,7 +97,7 @@ export function ConnectorsSheet({
       success();
       runAndClose(selected.prompt);
     } catch (e) {
-      Alert.alert("Couldn't connect", (e as Error).message);
+      Alert.alert(t('couldntConnect'), (e as Error).message);
     } finally {
       setSaving(false);
     }
@@ -115,7 +118,7 @@ export function ConnectorsSheet({
             ) : (
               <View style={{ width: 24 }} />
             )}
-            <Text style={styles.title}>{selected ? selected.name : 'Connectors'}</Text>
+            <Text style={styles.title}>{selected ? selected.name : t('connectors')}</Text>
             <Pressable onPress={() => { tap(); onClose(); }} hitSlop={10}>
               <Ionicons name="close" size={24} color={brand.textMuted} />
             </Pressable>
@@ -125,7 +128,7 @@ export function ConnectorsSheet({
               <Ionicons name="search" size={15} color={brand.textFaint} />
               <TextInput
                 style={styles.searchInput}
-                placeholder="Search integrations…"
+                placeholder={t('searchIntegrations')}
                 placeholderTextColor={brand.textFaint}
                 value={search}
                 onChangeText={setSearch}
@@ -140,8 +143,7 @@ export function ConnectorsSheet({
           <ScrollView contentContainerStyle={styles.detail} keyboardShouldPersistTaps="handled">
             <Text style={styles.detailDesc}>{selected.desc}</Text>
             <Text style={styles.detailHint}>
-              Paste your {selected.name} key{(selected.secretKeys?.length ?? 0) > 1 ? 's' : ''}. It’s stored encrypted and
-              injected when you publish — never shown again.
+              {t('pasteKeyHint').replace('{name}', selected.name).replace('{s}', (selected.secretKeys?.length ?? 0) > 1 ? 's' : '')}
             </Text>
             {(selected.secretKeys ?? []).map((k) => (
               <View key={k.name} style={styles.field}>
@@ -166,12 +168,12 @@ export function ConnectorsSheet({
               {saving ? (
                 <>
                   <ActivityIndicator color={brand.onAccent} />
-                  <Text style={styles.connectText}>Connecting…</Text>
+                  <Text style={styles.connectText}>{t('connecting')}</Text>
                 </>
               ) : (
                 <>
                   <Ionicons name="link" size={16} color={brand.onAccent} />
-                  <Text style={styles.connectText}>Connect &amp; build</Text>
+                  <Text style={styles.connectText}>{t('connectAndBuild')}</Text>
                 </>
               )}
             </Pressable>
@@ -196,7 +198,7 @@ export function ConnectorsSheet({
                   {connected ? (
                     <View style={styles.connectedTag}>
                       <Ionicons name="checkmark-circle" size={14} color={brand.success} />
-                      <Text style={styles.connectedText}>Added</Text>
+                      <Text style={styles.connectedText}>{t('added')}</Text>
                     </View>
                   ) : (
                     <Ionicons name="add-circle-outline" size={22} color={brand.accent} />
@@ -204,9 +206,9 @@ export function ConnectorsSheet({
                 </Pressable>
               );
             })}
-            {filtered.length === 0 ? <Text style={styles.empty}>No integrations match “{search}”.</Text> : null}
+            {filtered.length === 0 ? <Text style={styles.empty}>{t('noIntegrationsMatch').replace('{search}', search)}</Text> : null}
             <Text style={styles.footnote}>
-              Need Supabase? Connect it from the web editor for now — coming to mobile soon.
+              {t('supabaseFootnote')}
             </Text>
           </ScrollView>
         )}

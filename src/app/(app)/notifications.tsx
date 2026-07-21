@@ -10,9 +10,12 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '@/lib/supabase';
 import type { AppNotification } from '@/lib/types';
+import { useT } from '@/lib/i18n/useT';
+import { NOTIFICATIONS_STRINGS } from '@/lib/i18n/dict/notifications';
 import { brand, radius, space } from '@/lib/theme';
 
 export default function NotificationsScreen() {
+  const t = useT(NOTIFICATIONS_STRINGS);
   const [items, setItems] = useState<AppNotification[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -64,8 +67,8 @@ export default function NotificationsScreen() {
       ListEmptyComponent={
         <View style={styles.center}>
           <Ionicons name="notifications-off-outline" size={40} color={brand.textFaint} />
-          <Text style={styles.emptyTitle}>You&apos;re all caught up</Text>
-          <Text style={styles.emptyBody}>Build, publish, and referral activity will appear here.</Text>
+          <Text style={styles.emptyTitle}>{t('allCaughtUp')}</Text>
+          <Text style={styles.emptyBody}>{t('emptyBody')}</Text>
         </View>
       }
       renderItem={({ item }) => <NotificationRow n={item} />}
@@ -74,7 +77,8 @@ export default function NotificationsScreen() {
 }
 
 function NotificationRow({ n }: { n: AppNotification }) {
-  const { icon, title } = describe(n);
+  const t = useT(NOTIFICATIONS_STRINGS);
+  const { icon, title } = describe(n, t);
   const body = bodyOf(n);
   return (
     <View style={styles.row}>
@@ -90,18 +94,21 @@ function NotificationRow({ n }: { n: AppNotification }) {
   );
 }
 
-function describe(n: AppNotification): { icon: keyof typeof Ionicons.glyphMap; title: string } {
+function describe(
+  n: AppNotification,
+  t: ReturnType<typeof useT<typeof NOTIFICATIONS_STRINGS.en>>,
+): { icon: keyof typeof Ionicons.glyphMap; title: string } {
   switch (n.type) {
     case 'scheduled_agent_ran':
-      return { icon: 'checkmark-circle-outline', title: 'Scheduled agent ran' };
+      return { icon: 'checkmark-circle-outline', title: t('scheduledAgentRan') };
     case 'scheduled_agent_skipped':
-      return { icon: 'pause-circle-outline', title: 'Scheduled agent skipped' };
+      return { icon: 'pause-circle-outline', title: t('scheduledAgentSkipped') };
     case 'build_complete':
-      return { icon: 'hammer-outline', title: 'Build complete' };
+      return { icon: 'hammer-outline', title: t('buildComplete') };
     case 'published':
-      return { icon: 'rocket-outline', title: 'Project published' };
+      return { icon: 'rocket-outline', title: t('projectPublished') };
     case 'referral':
-      return { icon: 'gift-outline', title: 'Referral reward' };
+      return { icon: 'gift-outline', title: t('referralReward') };
     default:
       return { icon: 'notifications-outline', title: humanize(n.type) };
   }

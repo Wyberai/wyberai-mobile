@@ -13,6 +13,8 @@ import { supabase } from '@/lib/supabase';
 import { tap } from '@/lib/haptics';
 import { Spinner } from '@/components/Spinner';
 import type { FileMap } from '@/lib/api';
+import { useT } from '@/lib/i18n/useT';
+import { CODE_SCREEN_STRINGS } from '@/lib/i18n/dict/code-screen';
 import { brand, radius, space } from '@/lib/theme';
 
 // Read-only code browser — see exactly what the AI wrote (Lovable's code view).
@@ -49,6 +51,7 @@ function prettySize(n: number): string {
 
 export default function CodeScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
+  const t = useT(CODE_SCREEN_STRINGS);
   const [files, setFiles] = useState<FileMap>({});
   const [loading, setLoading] = useState(true);
   const [openPath, setOpenPath] = useState<string | null>(null);
@@ -73,7 +76,7 @@ export default function CodeScreen() {
   if (loading) {
     return (
       <View style={styles.center}>
-        <Stack.Screen options={{ title: 'Code' }} />
+        <Stack.Screen options={{ title: t('code') }} />
         <Spinner />
       </View>
     );
@@ -87,7 +90,7 @@ export default function CodeScreen() {
         <Stack.Screen
           options={{
             title: openPath.split('/').pop(),
-            headerBackTitle: 'Files',
+            headerBackTitle: t('files'),
             headerLeft: () => (
               <Pressable onPress={() => setOpenPath(null)} hitSlop={10} style={{ paddingRight: 10 }}>
                 <Ionicons name="chevron-back" size={24} color={brand.accent} />
@@ -101,7 +104,7 @@ export default function CodeScreen() {
             {openPath}
           </Text>
           <Text style={styles.fileHeaderMeta}>
-            {lines.length} lines · {prettySize(open.content.length)}
+            {t('linesAndSize').replace('{n}', String(lines.length)).replace('{size}', prettySize(open.content.length))}
           </Text>
         </View>
         <ScrollView style={styles.codeScroll}>
@@ -124,24 +127,24 @@ export default function CodeScreen() {
   // ── File tree ──
   return (
     <>
-      <Stack.Screen options={{ title: 'Code', headerBackTitle: 'Back' }} />
+      <Stack.Screen options={{ title: t('code'), headerBackTitle: t('back') }} />
       <ScrollView style={styles.scroll} contentContainerStyle={styles.content}>
         {totalFiles === 0 ? (
           <View style={styles.center}>
             <Ionicons name="code-slash-outline" size={40} color={brand.textFaint} />
-            <Text style={styles.emptyTitle}>No code yet</Text>
-            <Text style={styles.emptyBody}>Build something first — the source shows up here.</Text>
+            <Text style={styles.emptyTitle}>{t('noCodeYet')}</Text>
+            <Text style={styles.emptyBody}>{t('buildFirstBody')}</Text>
           </View>
         ) : (
           <>
             <Text style={styles.summary}>
-              {totalFiles} files · every line written by AI, owned by you
+              {t('filesSummary').replace('{n}', String(totalFiles))}
             </Text>
             {tree.map((node) => (
               <View key={node.dir} style={styles.dirCard}>
                 <View style={styles.dirHeader}>
                   <Ionicons name="folder-open-outline" size={15} color={brand.textMuted} />
-                  <Text style={styles.dirName}>{node.dir === '/' ? 'root' : node.dir}</Text>
+                  <Text style={styles.dirName}>{node.dir === '/' ? t('root') : node.dir}</Text>
                   <Text style={styles.dirCount}>{node.files.length}</Text>
                 </View>
                 {node.files.map((f, i) => (
