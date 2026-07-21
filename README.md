@@ -41,18 +41,19 @@ work in Expo Go; **push notifications require a dev/preview build** (see below).
 src/
   app/
     _layout.tsx             # Onboarding guard (AsyncStorage wyber:onboarded)
-    sign-in.tsx             # Email OTP (send code → verify code)
+    sign-in.tsx             # Email OTP / password (review account) / Google / GitHub / Apple
+    +native-intent.ts       # Deep-link routing (push taps, OAuth callback)
     (app)/
       _layout.tsx           # Bottom tabs (Home · Projects · Activity · Account)
-      index.tsx             # Home: hero prompt + template chips + community gallery
-      projects.tsx          # Projects list (RLS query, pull-to-refresh, rename/delete)
-      activity.tsx          # Activity feed (auto marks read)
+      home.tsx              # Home tab: hero prompt, starter/AI-suggested chips, community gallery
+      index.tsx             # Projects tab: list (RLS query, pull-to-refresh, rename/delete)
+      notifications.tsx     # Activity tab (auto marks read)
       account.tsx           # Credits, plan, quick links, sign out, credit activity
-      build/[id]/
-        index.tsx           # Chat + builder (streaming edits via /api/generate)
-        preview.tsx         # Web + Mobile (RN-web) inline previews
-        publish.tsx         # Publish modal (RLS gates, credit charge)
-      paywall.tsx           # Get credits: 3 packs (200/600/2000), Play Billing
+      new.tsx               # New-app form (web/mobile type, prompt) — hidden from tab bar
+      project/[id].tsx      # Project detail: publish/unpublish, rename, convert-to-mobile, share
+      build/[id].tsx        # Chat + builder (streaming edits, connectors, build theater, preview reveal)
+      preview/[id].tsx      # Full-screen preview (WebView; Expo Snack for mobile projects)
+      paywall.tsx           # Get credits: subscriptions + 3 one-time packs, Play Billing
       themes/[id].tsx       # 30+ palette picker (0-credit, instant preview)
       versions/[id].tsx     # Version snapshots (newest-first, restore confirm)
       code/[id].tsx         # File viewer (folder-grouped, monospace, line #s)
@@ -60,30 +61,35 @@ src/
   lib/
     supabase.ts             # SSR-safe client (typeof window guard for Node pre-render)
     iap.ts                  # RevenueCat: configure, purchase, restore
+    plans.ts                # Subscription tier facts — mirrors the web app's plans.ts
     api.ts                  # Wyberai endpoints: create/chat/build/publish/versions/messages/themes
+    connectors.ts           # Integration catalog for the in-chat Connectors sheet
     haptics.ts              # Fire-and-forget haptic feedback (tap, success, warn)
-    theme.ts                # WyberAi dark brand tokens (#0EA5E9) + 30 design palettes
+    theme.ts                # WyberAi dark brand tokens (#0EA5E9) — mirrors the web IDE palette
+    app-theme.ts / design-palettes.ts  # Theme system for END-USER generated apps (not app chrome)
     types.ts                # Project / Profile / Message / Version / Theme shapes
   components/
     Onboarding.tsx          # 3-slide first-launch carousel (AsyncStorage gate)
-    ErrorBoundary.tsx       # Crash guard (isolated builder + preview)
+    BuildTheater.tsx        # Live-build visual state shown while streaming a generation
+    ConnectorsSheet.tsx      # Add an integration from the phone (key-based connectors)
+    PreviewRevealSheet.tsx  # Slide-up preview shown inline after a build completes
+    BottomSheet.tsx         # Shared action-sheet primitive
+    SafeWidget.tsx          # Error-boundary wrapper (isolates builder + preview crashes)
 ```
 
-## Build an Android APK (no Android Studio needed)
+## Build a signed .aab / .apk
 
-Uses Expo Application Services (EAS) cloud builds.
+The release build runs entirely on **GitHub Actions** (no EAS) — see
+[`docs/ANDROID_BUILD.md`](docs/ANDROID_BUILD.md) for the full setup. In short:
 
 ```bash
-npm install -g eas-cli
-eas login                 # your Expo account
-eas init                  # links the project + writes extra.eas.projectId
-eas build -p android --profile preview   # → installable APK
+gh workflow run android-release.yml   # manual trigger, Actions tab or gh CLI
+gh run watch                          # follow the build
+gh run download <run-id>              # pulls the signed .aab and .apk
 ```
 
-- `preview` profile → **APK** (side-load / internal testing)
-- `production` profile → **AAB** (Google Play upload)
-
-Profiles live in `eas.json`.
+`eas.json` profiles still exist as a manual fallback (`eas build -p android
+--profile preview|production`) but are not the primary release path.
 
 ## Push notifications — required steps
 

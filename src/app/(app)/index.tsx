@@ -40,7 +40,7 @@ export default function ProjectsScreen() {
       .order('updated_at', { ascending: false });
     if (error) setError(error.message);
     else setProjects((data ?? []) as Project[]);
-  }, [user?.id]);
+  }, [user]);
 
   // Refetch every time the Projects tab regains focus — this tab never unmounts,
   // so a mount-only effect left the list stale after creating a project (the user

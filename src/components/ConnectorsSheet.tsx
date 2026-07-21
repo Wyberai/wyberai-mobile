@@ -47,6 +47,8 @@ export function ConnectorsSheet({
   // Reset the detail view whenever the sheet reopens/closes.
   useEffect(() => {
     if (!visible) {
+      // Legitimate prop-driven reset (clear form state when the sheet closes).
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setSelected(null);
       setKeyValues({});
       setSearch('');

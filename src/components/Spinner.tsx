@@ -1,11 +1,11 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useState } from 'react';
 import { Animated, Easing } from 'react-native';
 import { brand } from '@/lib/theme';
 
 // Matches the web app's loader exactly: a ring with a faint sky track and a
 // bright sky top-arc, spinning at 0.8s linear (see globals.css / AgentCanvas).
 export function Spinner({ size = 32, color = brand.accent }: { size?: number; color?: string }) {
-  const spin = useRef(new Animated.Value(0)).current;
+  const [spin] = useState(() => new Animated.Value(0));
 
   useEffect(() => {
     const loop = Animated.loop(

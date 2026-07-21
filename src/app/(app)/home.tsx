@@ -95,7 +95,7 @@ export default function HomeScreen() {
         .order('updated_at', { ascending: false })
         .limit(1)
         .then(({ data }) => setLatest(((data ?? [])[0] as Project) ?? null));
-    }, [user?.id]),
+    }, [user]),
   );
 
   async function onBuild() {

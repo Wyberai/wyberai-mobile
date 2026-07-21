@@ -92,7 +92,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       sub.subscription.unsubscribe();
       appStateSub.remove();
     };
-  }, []);
+  }, [refreshCredits]);
 
   // Catch OAuth redirects that arrive as a deep link (wyberai://auth-callback
   // ?code=...) when the in-session browser hands off instead of being intercepted.
@@ -131,6 +131,10 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     }
     if (!uid) {
       registeredFor.current = null;
+      // Reset local credit state to match the (just-cleared) signed-out session —
+      // legitimate prop-driven reset; the compiler's set-state-in-effect check
+      // flags it generically, but there's no derivation that avoids the effect here.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setCredits(null);
     }
   }, [session?.user?.id, refreshCredits]);

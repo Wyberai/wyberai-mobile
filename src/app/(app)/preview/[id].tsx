@@ -65,6 +65,8 @@ export default function PreviewScreen() {
   }, [id]);
 
   useEffect(() => {
+    // Fetch-on-mount: build() sets state only after its own awaits resolve.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     build();
   }, [build]);
 

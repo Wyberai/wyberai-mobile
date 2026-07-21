@@ -31,21 +31,21 @@ interface Props {
 }
 
 export function MicButton({ value, onChangeText, disabled, size = 34 }: Props) {
-  const [available, setAvailable] = useState(false);
+  // Lazy-initialized once on mount — avoids a synchronous setState-in-effect
+  // for what is otherwise a one-time capability check.
+  const [available] = useState(() => {
+    try {
+      return ExpoSpeechRecognitionModule.isRecognitionAvailable();
+    } catch {
+      return false;
+    }
+  });
   const [listening, setListening] = useState(false);
   // Text that was in the field when recognition started; transcripts append to it.
   const baseRef = useRef('');
   // Finalized speech from earlier result events in this same session.
   const finalRef = useRef('');
   const pulse = useSharedValue(0);
-
-  useEffect(() => {
-    try {
-      setAvailable(ExpoSpeechRecognitionModule.isRecognitionAvailable());
-    } catch {
-      setAvailable(false);
-    }
-  }, []);
 
   useEffect(() => {
     if (listening) {

@@ -47,6 +47,9 @@ export function PreviewRevealSheet({
 
   useEffect(() => {
     if (visible) {
+      // Mount-before-animate: `rendered` drives the Modal's own mount, so this
+      // must be a synchronous effect reset in step with the `visible` prop.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setRendered(true);
       progress.value = withTiming(1, { duration: motion.duration.base, easing: WEB_EASE });
     } else if (rendered) {

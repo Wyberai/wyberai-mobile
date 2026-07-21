@@ -46,6 +46,8 @@ export default function ProjectDetail() {
   }, [id]);
 
   useEffect(() => {
+    // Fetch-on-mount: load() sets state only after its own awaits resolve.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     load();
   }, [load]);
 

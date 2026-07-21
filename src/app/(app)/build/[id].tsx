@@ -259,7 +259,7 @@ export default function BuildScreen() {
         },
       );
     },
-    [id, user?.id, busy, type, files, messages, refreshCredits, autoPreview],
+    [id, user?.id, busy, type, files, messages, refreshCredits, autoPreview, router],
   );
 
   // Cancel an in-flight build — abort the stream, unlock the UI, and close out
