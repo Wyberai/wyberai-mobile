@@ -35,6 +35,10 @@ export function parseGenerationOutput(raw: string): ParseResult {
   chatText = chatText.replace(/```edited:[^`]*```/g, '');
   chatText = chatText.replace(/```[\s\S]*?```/g, '');
   chatText = chatText.replace(/\[progress:[^\]]+\]/gi, '');
+  // Agent-team events ([agent:{json}]) are consumed by extractAgentEvents
+  // (src/lib/agents/events.ts) for the live feed — they must never reach the
+  // saved/displayed chat text.
+  chatText = chatText.replace(/\[agent:\{[^\n\]]*\}\]/gi, '');
   chatText = chatText
     .split('\n')
     .map((l) => l.trim())
@@ -71,6 +75,9 @@ export function cleanStreamingDisplay(raw: string): string {
   out = out.replace(/<agent>[\s\S]*?<\/agent>/gi, '');
   out = out.replace(/<flow>[\s\S]*?<\/flow>/gi, '');
   out = out.replace(/\[progress:[^\]]*\]/gi, '');
+  // Agent-team events ([agent:{json}]) are parsed separately (extractAgentEvents)
+  // and rendered as the AgentFeed lanes — never as raw text in the chat bubble.
+  out = out.replace(/\[agent:\{[^\n\]]*\}\]/gi, '');
   // Drop the model's plan preamble lines (Building: / Sections: / Files:). These
   // are plain text (not tag-wrapped) so no rule above touches them; the build
   // theater already conveys the same information visually.
