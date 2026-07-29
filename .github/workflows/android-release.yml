@@ -140,12 +140,19 @@ jobs:
           echo "--- APK(s) for direct install ---"; ls -la android/app/build/outputs/apk/release/ || true
 
       - name: Upload AAB artifact (for Google Play)
+        # retention-days is intentionally short (was 14): each build uploads a
+        # ~135MB AAB+APK pair, and the org's Actions artifact storage quota is
+        # small enough that ~15 accumulated runs exhausted it entirely, failing
+        # every upload step with "Artifact storage quota has been hit" even
+        # though the Gradle build itself succeeded. Keep this low, or clear old
+        # artifacts manually (gh api -X DELETE repos/Wyberai/wyberai-mobile/actions/artifacts/<id>)
+        # if it happens again.
         uses: actions/upload-artifact@v4
         with:
           name: wyberai-android-aab
           path: android/app/build/outputs/bundle/release/*.aab
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 5
 
       - name: Upload APK artifact (sideload to phone)
         uses: actions/upload-artifact@v4
@@ -153,7 +160,7 @@ jobs:
           name: wyberai-android-apk
           path: android/app/build/outputs/apk/release/*.apk
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 5
 
       - name: Clean up keystore
         if: always()
