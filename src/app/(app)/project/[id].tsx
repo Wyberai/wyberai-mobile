@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -10,17 +10,19 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
+import { Stack, useLocalSearchParams, useRouter, type Href } from 'expo-router';
 import * as WebBrowser from 'expo-web-browser';
 import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '@/lib/supabase';
 import { projectUrl, isMobileProject, type Project } from '@/lib/types';
-import { API_BASE, deleteProject, publishProject, renameProject, unpublishProject } from '@/lib/api';
+import { API_BASE, deleteProject, duplicateProject, publishProject, renameProject, unpublishProject } from '@/lib/api';
 import type { FileMap } from '@/lib/api';
 import { tap, warn } from '@/lib/haptics';
 import { useToast } from '@/components/Toast';
 import { Spinner } from '@/components/Spinner';
+import { PreviewActivityCard } from '@/components/PreviewActivityCard';
+import { BottomSheet } from '@/components/BottomSheet';
 import { useT } from '@/lib/i18n/useT';
 import { PROJECT_DETAIL_STRINGS } from '@/lib/i18n/dict/project-detail';
 import { PROJECTS_STRINGS } from '@/lib/i18n/dict/projects';
@@ -41,6 +43,19 @@ export default function ProjectDetail() {
   const [editingName, setEditingName] = useState(false);
   const [draftName, setDraftName] = useState('');
   const [savingName, setSavingName] = useState(false);
+  const [duplicating, setDuplicating] = useState(false);
+  const [paymentsOpen, setPaymentsOpen] = useState(false);
+  const lastNavRef = useRef(0);
+
+  // Debounce the tool-row pushes below — a double-tap (fat-finger, or the tap
+  // landing right as the screen transition starts) would otherwise stack the
+  // same screen twice on the nav stack.
+  function navigateOnce(href: Href) {
+    const now = Date.now();
+    if (now - lastNavRef.current < 700) return;
+    lastNavRef.current = now;
+    router.push(href);
+  }
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -146,6 +161,36 @@ export default function ProjectDetail() {
     );
   }
 
+  async function doDuplicate() {
+    if (!project || duplicating) return;
+    setDuplicating(true);
+    try {
+      const fork = await duplicateProject(project.id);
+      showToast('Duplicated', 'success');
+      router.push(`/build/${fork.id}`);
+    } catch (e) {
+      Alert.alert(t('failed'), (e as Error).message);
+    } finally {
+      setDuplicating(false);
+    }
+  }
+
+  function wirePayments(provider: string, secretNames: string[], wiringPrompt: string) {
+    if (!project) return;
+    const names = secretNames.map((n) => `"${n}"`).join(' and ');
+    Alert.alert(
+      `Add your ${provider} keys`,
+      `Add ${secretNames.length > 1 ? 'secrets' : 'a secret'} named ${names} in Secrets first, then come back and send the wiring prompt to the builder.`,
+      [
+        { text: 'Open Secrets', onPress: () => router.push('/secrets' as Href) },
+        {
+          text: 'Send wiring prompt',
+          onPress: () => router.push(`/build/${project.id}?prompt=${encodeURIComponent(wiringPrompt)}`),
+        },
+      ],
+    );
+  }
+
   function doUnpublish() {
     if (!project) return;
     Alert.alert(t('takeOffline'), t('takeOfflineBody'), [
@@ -238,6 +283,8 @@ export default function ProjectDetail() {
             <MetaRow label={t('updated')} value={new Date(project.updated_at).toLocaleString()} />
           </View>
 
+          <PreviewActivityCard projectId={project.id} />
+
           <Pressable
             onPress={() => router.push(`/build/${project.id}`)}
             style={({ pressed }) => [styles.primary, pressed && styles.primaryPressed]}
@@ -274,6 +321,48 @@ export default function ProjectDetail() {
               label={t('viewCode')}
               hint={t('viewCodeHint')}
               onPress={() => router.push(`/code/${project.id}`)}
+            />
+            <View style={styles.toolDivider} />
+            <ToolRow
+              icon={duplicating ? 'hourglass-outline' : 'copy-outline'}
+              label="Duplicate"
+              hint="Fork this into a new project you own"
+              onPress={doDuplicate}
+            />
+            <View style={styles.toolDivider} />
+            <ToolRow
+              icon="shield-checkmark-outline"
+              label="Security scan"
+              hint="Check for data leaks"
+              onPress={() => navigateOnce(`/security-scan/${project.id}` as Href)}
+            />
+            <View style={styles.toolDivider} />
+            <ToolRow
+              icon="server-outline"
+              label="Database"
+              hint="Status & tables"
+              onPress={() => navigateOnce(`/database-status/${project.id}` as Href)}
+            />
+            <View style={styles.toolDivider} />
+            <ToolRow
+              icon="search-outline"
+              label="SEO check"
+              hint="Meta, OG, sitemap"
+              onPress={() => navigateOnce(`/seo/${project.id}` as Href)}
+            />
+            <View style={styles.toolDivider} />
+            <ToolRow
+              icon="people-outline"
+              label="Team"
+              hint="Manage collaborators"
+              onPress={() => navigateOnce(`/collaborators/${project.id}` as Href)}
+            />
+            <View style={styles.toolDivider} />
+            <ToolRow
+              icon="card-outline"
+              label="Payments"
+              hint="Wire up a provider"
+              onPress={() => setPaymentsOpen(true)}
             />
           </View>
 
@@ -360,6 +449,33 @@ export default function ProjectDetail() {
           </Pressable>
         </ScrollView>
       )}
+
+      <BottomSheet
+        visible={paymentsOpen}
+        title="Add payments"
+        subtitle="Choose a provider to wire into this project"
+        onClose={() => setPaymentsOpen(false)}
+        actions={[
+          {
+            icon: 'card-outline',
+            label: 'Stripe',
+            onPress: () =>
+              wirePayments('Stripe', ['STRIPE_SECRET_KEY'], 'Add Stripe payment integration with checkout, subscriptions, and webhook handling.'),
+          },
+          {
+            icon: 'card-outline',
+            label: 'Razorpay',
+            onPress: () =>
+              wirePayments('Razorpay', ['RAZORPAY_KEY_ID', 'RAZORPAY_KEY_SECRET'], 'Add Razorpay payment gateway with checkout and subscription billing.'),
+          },
+          {
+            icon: 'card-outline',
+            label: 'Lemon Squeezy',
+            onPress: () =>
+              wirePayments('Lemon Squeezy', ['LEMONSQUEEZY_API_KEY'], 'Add Lemon Squeezy for product sales with checkout overlay and license key validation.'),
+          },
+        ]}
+      />
     </>
   );
 }

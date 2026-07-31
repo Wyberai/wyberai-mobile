@@ -11,7 +11,8 @@ import {
   View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useFocusEffect, useRouter } from 'expo-router';
+import { useFocusEffect, useRouter, type Href } from 'expo-router';
+import Constants from 'expo-constants';
 import { useSession } from '@/ctx/session';
 import { supabase } from '@/lib/supabase';
 import {
@@ -166,6 +167,36 @@ export default function AccountScreen() {
         />
         <View style={styles.divider} />
         <LinkRow
+          icon="notifications-outline"
+          label="Notification Preferences"
+          onPress={() => router.push('/notification-preferences' as Href)}
+        />
+        <View style={styles.divider} />
+        <LinkRow
+          icon="key-outline"
+          label="API & MCP"
+          onPress={() => router.push('/api-keys' as Href)}
+        />
+        <View style={styles.divider} />
+        <LinkRow
+          icon="lock-closed-outline"
+          label="Secrets"
+          onPress={() => router.push('/secrets' as Href)}
+        />
+        <View style={styles.divider} />
+        <LinkRow
+          icon="logo-github"
+          label="GitHub"
+          onPress={() => router.push('/github-settings' as Href)}
+        />
+        <View style={styles.divider} />
+        <LinkRow
+          icon="shield-checkmark-outline"
+          label="Security"
+          onPress={() => router.push('/security-settings' as Href)}
+        />
+        <View style={styles.divider} />
+        <LinkRow
           icon="help-circle-outline"
           label={t('helpSupport')}
           onPress={() => Linking.openURL('https://wyberai.com/contact')}
@@ -181,6 +212,21 @@ export default function AccountScreen() {
               'mailto:hello@wyberai.com?subject=Report%20content&body=Please%20describe%20the%20app%20or%20content%20you%27re%20reporting%20(a%20link%20helps):%0A%0A',
             )
           }
+        />
+        <View style={styles.divider} />
+        <LinkRow
+          icon="document-lock-outline"
+          label="Privacy Policy"
+          // `/privacy` isn't reachable from typed-routes' static sitemap scan
+          // (react-native-webview has no web bundle target), so it never lands
+          // in the generated route union even though the native route works fine.
+          onPress={() => router.push('/privacy' as Href)}
+        />
+        <View style={styles.divider} />
+        <LinkRow
+          icon="document-text-outline"
+          label="Terms of Service"
+          onPress={() => router.push('/privacy?doc=terms' as Href)}
         />
       </View>
 
@@ -226,7 +272,7 @@ export default function AccountScreen() {
         )}
       </Pressable>
 
-      <Text style={styles.version}>WyberAi · v1.0.0</Text>
+      <Text style={styles.version}>{`WyberAi · v${Constants.expoConfig?.version ?? '?'}`}</Text>
     </ScrollView>
   );
 }
@@ -282,6 +328,7 @@ function describeReason(
   if (r.includes('plan')) return { label: t('reasonPlanMode'), icon: 'map-outline' };
   if (r.includes('edit')) return { label: t('reasonEdit'), icon: 'create-outline' };
   if (r.includes('build') || r.includes('generat')) return { label: t('reasonBuild'), icon: 'sparkles-outline' };
+  if (r.includes('preview-access')) return { label: 'Preview shared', icon: 'phone-portrait-outline' };
   return { label: reason.slice(0, 40) || t('reasonOther'), icon: 'swap-horizontal-outline' };
 }
 

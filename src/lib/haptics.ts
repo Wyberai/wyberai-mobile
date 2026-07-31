@@ -29,3 +29,15 @@ export function warn(): void {
   if (!enabled) return;
   Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(() => {});
 }
+
+/** Very light tick — per-item feedback in a fast-moving list (build progress ticks, pull-to-refresh). */
+export function tick(): void {
+  if (!enabled) return;
+  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+}
+
+/** Destructive-action confirmation (delete project, remove secret). */
+export function destructive(): void {
+  if (!enabled) return;
+  Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(() => {});
+}

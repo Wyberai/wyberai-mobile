@@ -1,6 +1,7 @@
 import { Tabs, useRouter } from 'expo-router';
-import { Pressable, StyleSheet, Text } from 'react-native';
+import { Platform, Pressable, StyleSheet, Text } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
+import { BlurView } from 'expo-blur';
 import { Ionicons } from '@expo/vector-icons';
 import { brand, font } from '@/lib/theme';
 import { usePushNavigation } from '@/lib/usePushNavigation';
@@ -42,19 +43,22 @@ export default function AppTabsLayout() {
         headerShadowVisible: false,
         tabBarActiveTintColor: brand.accent,
         tabBarInactiveTintColor: brand.textFaint,
-        // Subtle vertical gradient instead of a flat surface — reads as depth
-        // without blur (expo-blur isn't installed; expo-glass-effect is
-        // iOS-only and this release ships Android — both are iOS candidates).
         tabBarStyle: {
           backgroundColor: 'transparent',
           borderTopColor: brand.border,
         },
-        tabBarBackground: () => (
-          <LinearGradient
-            colors={[brand.surface, '#0C0C10F5']}
-            style={StyleSheet.absoluteFill}
-          />
-        ),
+        // Real blur on iOS (glassmorphic tab bar); Android's BlurView backend
+        // is low-fidelity and costly per-instance, so it keeps the previous
+        // gradient there — reads as depth without the perf/fidelity tradeoff.
+        tabBarBackground: () =>
+          Platform.OS === 'ios' ? (
+            <BlurView intensity={30} tint="dark" style={StyleSheet.absoluteFill} />
+          ) : (
+            <LinearGradient
+              colors={[brand.surface, '#0C0C10F5']}
+              style={StyleSheet.absoluteFill}
+            />
+          ),
         sceneStyle: { backgroundColor: brand.bg },
       }}
     >
@@ -117,6 +121,17 @@ export default function AppTabsLayout() {
       <Tabs.Screen name="themes/[id]" options={{ href: null, title: tThemes('themes') }} />
       <Tabs.Screen name="versions/[id]" options={{ href: null, title: tVersions('versionHistory') }} />
       <Tabs.Screen name="code/[id]" options={{ href: null, title: tCode('code') }} />
+      <Tabs.Screen name="notification-preferences" options={{ href: null, title: 'Notifications' }} />
+      <Tabs.Screen name="api-keys" options={{ href: null, title: 'API & MCP' }} />
+      <Tabs.Screen name="secrets" options={{ href: null, title: 'Secrets' }} />
+      <Tabs.Screen name="security-settings" options={{ href: null, title: 'Security' }} />
+      <Tabs.Screen name="github-settings" options={{ href: null, title: 'GitHub' }} />
+      <Tabs.Screen name="import" options={{ href: null, title: 'Import project' }} />
+      <Tabs.Screen name="security-scan/[id]" options={{ href: null, title: 'Security Scan' }} />
+      <Tabs.Screen name="database-status/[id]" options={{ href: null, title: 'Database' }} />
+      <Tabs.Screen name="seo/[id]" options={{ href: null, title: 'SEO Check' }} />
+      <Tabs.Screen name="collaborators/[id]" options={{ href: null, title: 'Team' }} />
+      <Tabs.Screen name="gallery" options={{ href: null, title: 'Community Gallery' }} />
     </Tabs>
   );
 }

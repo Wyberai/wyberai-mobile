@@ -27,16 +27,39 @@ export type RevealState =
   | { phase: 'ready-html'; html: string }
   | { phase: 'error' };
 
+export type RuntimeErrorInfo = { message: string; source?: string; line?: number; stack?: string };
+
 const WEB_EASE = Easing.bezier(...motion.ease);
+
+// Bridges uncaught JS errors inside the previewed app back to the native
+// chat — this is what powers the AutoFix banner (build/[id].tsx). Injected
+// once per WebView load, before the app's own bundle runs.
+const ERROR_BRIDGE_JS = `
+(function() {
+  function report(payload) {
+    try { window.ReactNativeWebView.postMessage(JSON.stringify(payload)); } catch (e) {}
+  }
+  window.onerror = function(msg, src, line, col, err) {
+    report({ type: 'rn_error', message: String(msg), source: src, line: line, stack: err && err.stack });
+  };
+  window.addEventListener('unhandledrejection', function(e) {
+    var reason = e && e.reason;
+    report({ type: 'rn_error', message: String(reason && reason.message || reason || 'Unhandled promise rejection'), stack: reason && reason.stack });
+  });
+  true;
+})();
+`;
 
 export function PreviewRevealSheet({
   state,
   onClose,
   onOpenFull,
+  onRuntimeError,
 }: {
   state: RevealState;
   onClose: () => void;
   onOpenFull: () => void;
+  onRuntimeError?: (info: RuntimeErrorInfo) => void;
 }) {
   const insets = useSafeAreaInsets();
   const { height } = useWindowDimensions();
@@ -131,9 +154,15 @@ export function PreviewRevealSheet({
                 originWhitelist={['*']}
                 javaScriptEnabled
                 domStorageEnabled
-                onMessage={() => {
-                  // In-app render failures show their own fallback card inside
-                  // the WebView — don't stack another error on top.
+                injectedJavaScriptBeforeContentLoaded={ERROR_BRIDGE_JS}
+                onMessage={(e) => {
+                  try {
+                    const data = JSON.parse(e.nativeEvent.data);
+                    if (data?.type === 'rn_error') onRuntimeError?.(data);
+                  } catch {
+                    // In-app render failures show their own fallback card inside
+                    // the WebView — a non-JSON message is nothing to act on.
+                  }
                 }}
               />
             </View>

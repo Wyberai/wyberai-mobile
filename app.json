@@ -21,7 +21,11 @@
       "package": "com.wyberai.app",
       "versionCode": 9,
       "permissions": [
-        "com.android.vending.BILLING"
+        "com.android.vending.BILLING",
+        "CAMERA",
+        "RECORD_AUDIO",
+        "RECEIVE_BOOT_COMPLETED",
+        "VIBRATE"
       ],
       "adaptiveIcon": {
         "backgroundColor": "#0A0A0B",
@@ -61,7 +65,26 @@
           "speechRecognitionPermission": "WyberAi turns your speech into a build prompt."
         }
       ],
-      "./plugins/withReleaseSigning"
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "WyberAi uses your photo library to attach screenshots to your build prompts.",
+          "cameraPermission": "WyberAi uses your camera to attach screenshots to your build prompts."
+        }
+      ],
+      "expo-updates",
+      "./plugins/withReleaseSigning",
+      "@sentry/react-native",
+      "expo-sharing",
+      [
+        "expo-font",
+        {
+          "fonts": [
+            "./assets/fonts/GeneralSans-Bold.ttf",
+            "./assets/fonts/GeneralSans-Semibold.ttf"
+          ]
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true,
@@ -77,7 +100,9 @@
       "policy": "appVersion"
     },
     "updates": {
-      "enabled": false
+      "enabled": true,
+      "checkOnLaunch": "WIFI_ONLY",
+      "url": "https://u.expo.dev/6e2b1feb-05c1-473c-8e5e-27b5f07587f8"
     },
     "owner": "signalpulse"
   }

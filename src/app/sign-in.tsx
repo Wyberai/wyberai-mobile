@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Animated,
-  Image,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -14,9 +13,12 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as AppleAuthentication from 'expo-apple-authentication';
+import { useRouter, type Href } from 'expo-router';
 import { useSession } from '@/ctx/session';
 import { useT } from '@/lib/i18n/useT';
 import { SIGN_IN_STRINGS } from '@/lib/i18n/dict/sign-in';
+import { WyberIcon } from '@/components/WyberIcon';
+import { WyberWordmark } from '@/components/WyberWordmark';
 import { brand, font, radius, space } from '@/lib/theme';
 
 // The app-review account signs in with a password instead of an emailed OTP
@@ -35,6 +37,7 @@ const ENABLE_APPLE = process.env.EXPO_PUBLIC_ENABLE_APPLE === 'true';
 
 export default function SignIn() {
   const t = useT(SIGN_IN_STRINGS);
+  const router = useRouter();
   const { signInWithProvider, signInWithApple, sendCode, verifyCode, signInWithPassword } = useSession();
   const [step, setStep] = useState<'email' | 'code' | 'password'>('email');
   const [email, setEmail] = useState('');
@@ -118,8 +121,8 @@ export default function SignIn() {
       >
         <View style={styles.container}>
           <View style={styles.brandRow}>
-            <Image source={require('../../assets/images/icon.png')} style={styles.logoImg} />
-            <Text style={styles.wordmark}>Wyber<Text style={{ color: brand.accent }}>Ai</Text></Text>
+            <WyberIcon size={26} />
+            <WyberWordmark width={116} />
           </View>
 
           {step === 'email' ? (
@@ -292,6 +295,16 @@ export default function SignIn() {
               </Pressable>
             </>
           )}
+
+          <View style={styles.legalRow}>
+            <Pressable onPress={() => router.push('/privacy' as Href)} hitSlop={8}>
+              <Text style={styles.legalLink}>Privacy Policy</Text>
+            </Pressable>
+            <Text style={styles.legalDot}>·</Text>
+            <Pressable onPress={() => router.push('/privacy?doc=terms' as Href)} hitSlop={8}>
+              <Text style={styles.legalLink}>Terms</Text>
+            </Pressable>
+          </View>
         </View>
       </KeyboardAvoidingView>
     </SafeAreaView>
@@ -368,8 +381,6 @@ const styles = StyleSheet.create({
   flex: { flex: 1 },
   container: { flex: 1, justifyContent: 'center', padding: space.xl, gap: space.md },
   brandRow: { flexDirection: 'row', alignItems: 'center', gap: space.sm, marginBottom: space.xl },
-  logoImg: { width: 26, height: 26, borderRadius: 7 },
-  wordmark: { color: brand.text, fontSize: 20, fontFamily: font.display, letterSpacing: -0.3 },
   oauthBtn: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -416,4 +427,7 @@ const styles = StyleSheet.create({
   buttonDisabled: { opacity: 0.4 },
   buttonText: { color: brand.onAccent, fontSize: 16, fontWeight: '700' },
   link: { color: brand.accent, fontSize: 14, textAlign: 'center', marginTop: space.lg },
+  legalRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: space.sm, marginTop: space.xl },
+  legalLink: { color: brand.textFaint, fontSize: 12.5 },
+  legalDot: { color: brand.textFaint, fontSize: 12.5 },
 });

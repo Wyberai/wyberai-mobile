@@ -24,6 +24,19 @@ export const brand = {
   success: '#22C55E',
   danger: '#EF4444',
   warning: '#F59E0B',
+
+  // Secondary accent — onboarding's agent-team slide, kept distinct from the
+  // primary sky accent so multi-slide/multi-card moments can differentiate.
+  violet: '#A855F7',
+  // Light-tinted accent for text/icons drawn on a solid accent background
+  // (e.g. the splash overlay's wordmark), where a plain white reads flatter.
+  accentSoft: '#DCF3FF',
+
+  // Glassmorphic surfaces (GlassCard's Android fallback, tab bar, sheet
+  // headers) — translucent, so these are independent of `surface`/`border`
+  // rather than derived from them.
+  glassSurface: 'rgba(18,19,32,0.85)',
+  glassBorder: 'rgba(255,255,255,0.08)',
 } as const;
 
 // Web radii: --r-sm 6, --r 10, --r-lg 14.
@@ -66,4 +79,17 @@ export const motion = {
   },
   // Default entrance travel — matches web @keyframes fadeUp (translateY 20px).
   rise: 20,
+} as const;
+
+// Reanimated withSpring configs — for interaction-driven motion (sheets,
+// press states) where a physics feel reads better than a fixed-duration
+// timing curve. `motion.duration`/`motion.ease` above stay in place for
+// entrance/exit animations ported 1:1 from the web's CSS keyframes.
+export const SPRINGS = {
+  /** Snappy — press feedback, small toggles. */
+  SNAP: { mass: 0.4, stiffness: 400, damping: 30 },
+  /** Standard — sheet/modal open-close, most UI transitions. */
+  EASE: { mass: 0.7, stiffness: 200, damping: 20 },
+  /** Floaty — hero/splash moments, low-frequency emphasis motion. */
+  FLOAT: { mass: 1.0, stiffness: 120, damping: 16 },
 } as const;

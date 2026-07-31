@@ -14,6 +14,9 @@ import {
 } from 'react-native';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import * as ImagePicker from 'expo-image-picker';
+import * as ImageManipulator from 'expo-image-manipulator';
+import { Image } from 'expo-image';
 import { useSession } from '@/ctx/session';
 import { supabase } from '@/lib/supabase';
 import {
@@ -28,10 +31,21 @@ import {
   saveMessage,
   saveVersion,
   streamGenerate,
+  fetchSuggestions,
+  exportProjectZip,
+  getGithubRepoStatus,
+  pushToGithub,
   type FileMap,
   type Plan,
   type ProjectType,
+  type Suggestion,
 } from '@/lib/api';
+import * as Sharing from 'expo-sharing';
+import * as StoreReview from 'expo-store-review';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { ImagesPanelSheet } from '@/components/ImagesPanelSheet';
+import { KnowledgeSheet } from '@/components/KnowledgeSheet';
+import { useToast } from '@/components/Toast';
 import { thunk, warn } from '@/lib/haptics';
 import { cleanStreamingDisplay, extractProgressLines } from '@/lib/file-parser';
 import { extractAgentEvents, deriveAgentLanes, type AgentLane } from '@/lib/agents/events';
@@ -41,15 +55,53 @@ import { BuildTheater } from '@/components/BuildTheater';
 import { AgentFeed } from '@/components/AgentFeed';
 import { ConnectorsSheet } from '@/components/ConnectorsSheet';
 import { MicButton } from '@/components/MicButton';
-import { PreviewRevealSheet, type RevealState } from '@/components/PreviewRevealSheet';
+import { PreviewRevealSheet, type RevealState, type RuntimeErrorInfo } from '@/components/PreviewRevealSheet';
+import { FileMentionPicker } from '@/components/FileMentionPicker';
+import { StreamingText } from '@/components/StreamingText';
 import { SafeWidget } from '@/components/SafeWidget';
 import { useT } from '@/lib/i18n/useT';
 import { BUILD_SCREEN_STRINGS } from '@/lib/i18n/dict/build-screen';
 import { brand, radius, space } from '@/lib/theme';
 
+// Turns a caught preview runtime error into a standard repair instruction —
+// same idea as the web app's auto-fix chat turn, just built client-side here
+// since the mobile app has no equivalent server hook to generate one.
+const BUILD_COUNT_KEY = 'wyber:build-count';
+const REVIEW_PROMPTED_AT_KEY = 'wyber:review-prompted-at';
+const REVIEW_PROMPT_COOLDOWN_MS = 90 * 24 * 60 * 60 * 1000;
+
+// Ask for a store review after a successful build, at most once per 90 days,
+// and never before the user has actually shipped a few things (build 3+) —
+// asking after their very first build is asking before they trust the product.
+async function maybePromptReview() {
+  try {
+    const countRaw = await AsyncStorage.getItem(BUILD_COUNT_KEY);
+    const count = (parseInt(countRaw ?? '0', 10) || 0) + 1;
+    await AsyncStorage.setItem(BUILD_COUNT_KEY, String(count));
+    if (count < 3) return;
+
+    const promptedAtRaw = await AsyncStorage.getItem(REVIEW_PROMPTED_AT_KEY);
+    const promptedAt = promptedAtRaw ? parseInt(promptedAtRaw, 10) : 0;
+    if (Date.now() - promptedAt < REVIEW_PROMPT_COOLDOWN_MS) return;
+
+    if (!(await StoreReview.isAvailableAsync())) return;
+    await StoreReview.requestReview();
+    await AsyncStorage.setItem(REVIEW_PROMPTED_AT_KEY, String(Date.now()));
+  } catch {
+    // Store review is a nicety — never let it throw into a build's success path.
+  }
+}
+
+function autoFixPrompt(err: RuntimeErrorInfo): string {
+  const location = err.source ? ` (at ${err.source}${err.line ? `:${err.line}` : ''})` : '';
+  const stack = err.stack ? `\n\nStack trace:\n${err.stack.slice(0, 1500)}` : '';
+  return `The app preview threw a runtime error — please fix it.\n\nError: ${err.message}${location}${stack}`;
+}
+
 type Msg =
   | { id: string; role: 'user'; text: string }
-  | { id: string; role: 'assistant'; text: string; progress?: string[]; agentLanes?: AgentLane[]; streaming?: boolean };
+  | { id: string; role: 'assistant'; text: string; progress?: string[]; agentLanes?: AgentLane[]; streaming?: boolean }
+  | { id: string; role: 'suggestions'; items: Suggestion[] };
 
 export default function BuildScreen() {
   const { id, prompt: initialPrompt } = useLocalSearchParams<{ id: string; prompt?: string }>();
@@ -62,6 +114,8 @@ export default function BuildScreen() {
   const [name, setName] = useState('');
   const [type, setType] = useState<ProjectType>('web');
   const [files, setFiles] = useState<FileMap>({});
+  const filesRef = useRef(files);
+  useEffect(() => { filesRef.current = files; }, [files]);
   const [messages, setMessages] = useState<Msg[]>([]);
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
@@ -73,18 +127,97 @@ export default function BuildScreen() {
   const handleRef = useRef<{ abort: () => void } | null>(null);
   const firedInitial = useRef(false);
   const listRef = useRef<FlatList<Msg>>(null);
+  const inputRef = useRef<TextInput>(null);
+  // Staged photo attachment — set by the camera button, consumed and cleared
+  // by the next run() (a ref, not state, so every existing run() call site —
+  // Plan Mode, suggestion chips, connectors — doesn't need to thread it through).
+  type PendingImage = { base64: string; mimeType: string; previewUri: string };
+  const pendingImageRef = useRef<PendingImage | null>(null);
+  const [pendingImagePreview, setPendingImagePreview] = useState<string | null>(null);
+
+  const processPickedAsset = useCallback(async (asset: ImagePicker.ImagePickerAsset) => {
+    // Only downscale if it's actually bigger than the cap — a small screenshot
+    // shouldn't get upscaled/re-encoded for no reason. `quality` alone only
+    // controls JPEG compression, not pixel dimensions — a straight-from-camera
+    // 12-48MP photo would still ship whole as base64 in the /api/generate
+    // body and could hang the request without this resize step.
+    const MAX_DIM = 1280;
+    const needsResize = (asset.width ?? 0) > MAX_DIM || (asset.height ?? 0) > MAX_DIM;
+    const wide = (asset.width ?? 0) >= (asset.height ?? 0);
+    const resized = await ImageManipulator.manipulateAsync(
+      asset.uri,
+      needsResize ? [{ resize: wide ? { width: MAX_DIM } : { height: MAX_DIM } }] : [],
+      { compress: 0.6, format: ImageManipulator.SaveFormat.JPEG, base64: true },
+    );
+    if (!resized.base64) return;
+    pendingImageRef.current = { base64: resized.base64, mimeType: 'image/jpeg', previewUri: resized.uri };
+    setPendingImagePreview(resized.uri);
+  }, []);
+
+  const takePhoto = useCallback(async () => {
+    const perm = await ImagePicker.requestCameraPermissionsAsync();
+    if (!perm.granted) return;
+    const result = await ImagePicker.launchCameraAsync({ base64: false, quality: 1, allowsEditing: false });
+    const asset = result.assets?.[0];
+    if (result.canceled || !asset?.uri) return;
+    await processPickedAsset(asset);
+  }, [processPickedAsset]);
+
+  const pickFromLibrary = useCallback(async () => {
+    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!perm.granted) return;
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      base64: false,
+      quality: 1,
+      allowsEditing: false,
+    });
+    const asset = result.assets?.[0];
+    if (result.canceled || !asset?.uri) return;
+    await processPickedAsset(asset);
+  }, [processPickedAsset]);
+
+  // The camera icon implied live capture, but only ever opened the photo
+  // library — offer both, matching what the icon promises.
+  const pickImage = useCallback(() => {
+    Alert.alert('Attach a photo', undefined, [
+      { text: 'Take Photo', onPress: takePhoto },
+      { text: 'Choose from Library', onPress: pickFromLibrary },
+      { text: 'Cancel', style: 'cancel' },
+    ]);
+  }, [takePhoto, pickFromLibrary]);
+
+  const clearPendingImage = useCallback(() => {
+    pendingImageRef.current = null;
+    setPendingImagePreview(null);
+  }, []);
   const [toolsOpen, setToolsOpen] = useState(false);
   const [connectorsOpen, setConnectorsOpen] = useState(false);
+  const [imagesOpen, setImagesOpen] = useState(false);
+  const [knowledgeOpen, setKnowledgeOpen] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const [pushingGithub, setPushingGithub] = useState(false);
+  const showToast = useToast();
   // The reveal moment: after a build lands, the app auto-renders in a slide-up
   // sheet. Purely additive — every await mutates only this state, and the
   // whole surface is SafeWidget'd, so a preview failure can't touch chat.
   const [reveal, setReveal] = useState<RevealState>({ phase: 'hidden' });
+  // Surfaced by the reveal sheet's WebView error bridge — powers the AutoFix
+  // banner offering to send the error straight back into the chat as a repair
+  // prompt. Cleared whenever a new build starts (run()) or the preview
+  // silently re-renders (autoPreview()) since either makes the previous error stale.
+  const [autoFixError, setAutoFixError] = useState<RuntimeErrorInfo | null>(null);
   const goneRef = useRef(false);
   useEffect(() => () => { goneRef.current = true; }, []);
 
   const autoPreview = useCallback(
     async (nextFiles: FileMap) => {
       if (!id || goneRef.current || Object.keys(nextFiles).length === 0) return;
+      // Any fresh render (including a silent background reload after images
+      // resolve or a manual regenerate) can change or fix what's on screen —
+      // a banner about an error from the PREVIOUS render must not linger and
+      // imply the new one is still broken.
+      setAutoFixError(null);
       setReveal({ phase: 'building' });
       try {
         if (type === 'mobile') {
@@ -113,6 +246,7 @@ export default function BuildScreen() {
       .eq('id', id)
       .maybeSingle()
       .then(({ data }) => {
+        if (goneRef.current) return;
         if (data) {
           setName(data.name ?? '');
           setType((data.project_type as ProjectType) ?? 'web');
@@ -121,7 +255,7 @@ export default function BuildScreen() {
         setLoaded(true);
       });
     loadMessages(id).then((stored) => {
-      if (stored.length === 0) return;
+      if (goneRef.current || stored.length === 0) return;
       setMessages((current) => {
         // Never clobber a conversation that already started this session
         // (e.g. the initial-prompt build fired before history arrived).
@@ -136,12 +270,19 @@ export default function BuildScreen() {
     refreshCredits();
   }, [id, refreshCredits]);
 
+  // `busy` state alone isn't enough to block a double-tap — React doesn't
+  // commit the setBusy(true) below synchronously, so two taps landing in the
+  // same event-loop turn (fast double-tap on Send or "Fix it") can both pass
+  // the `busy` check before either has re-rendered. This ref closes that gap.
+  const runningRef = useRef(false);
   const run = useCallback(
-    (promptText: string, displayText?: string) => {
-      if (!id || !user?.id || busy || !promptText.trim()) return;
+    (promptText: string, displayText?: string, opts?: { consumeImage?: boolean }) => {
+      if (!id || !user?.id || busy || runningRef.current || !promptText.trim()) return;
+      runningRef.current = true;
       const prompt = promptText.trim();
       setInput('');
       setBusy(true);
+      setAutoFixError(null);
       thunk();
 
       // displayText lets the chat bubble show the user's own words while the
@@ -152,12 +293,25 @@ export default function BuildScreen() {
       // Conversation context for the model: the last few turns BEFORE this one
       // (same shape the web ChatPanel sends). Persist the user turn immediately
       // so history survives even if the build is cancelled mid-stream.
-      const history = messages.slice(-12).map((m) => ({ role: m.role, content: m.text }));
+      const history = messages
+        .filter((m): m is Extract<Msg, { role: 'user' | 'assistant' }> => m.role !== 'suggestions')
+        .slice(-12)
+        .map((m) => ({ role: m.role, content: m.text }));
       setMessages((m) => [...m, userMsg, assistant]);
       saveMessage(id, 'user', userMsg.text, { clientId: userMsg.id });
 
+      // AutoFix and the Connectors sheet fire their own generated prompts —
+      // a photo the user staged for their OWN next message must not get
+      // silently spent on one of those instead (it would just vanish with no
+      // indication why, and the user's real message would send without it).
+      const consumeImage = opts?.consumeImage ?? true;
+      const image = consumeImage && pendingImageRef.current
+        ? { base64: pendingImageRef.current.base64, mimeType: pendingImageRef.current.mimeType }
+        : undefined;
+      if (consumeImage) clearPendingImage();
+
       handleRef.current = streamGenerate(
-        { prompt, projectId: id, userId: user.id, projectType: type, files, history },
+        { prompt, projectId: id, userId: user.id, projectType: type, files, history, image },
         {
           onText: (full) => {
             const shown = cleanStreamingDisplay(full);
@@ -170,6 +324,7 @@ export default function BuildScreen() {
             );
           },
           onDone: async (full) => {
+            if (goneRef.current) return;
             try {
               const { files: next, chatText, changed } = applyGeneration(files, full);
               // Never persist an empty project. If the generation produced no
@@ -185,10 +340,15 @@ export default function BuildScreen() {
                   ),
                 );
                 setBusy(false);
+                runningRef.current = false;
                 return;
               }
               setFiles(next);
               await saveFiles(id, next);
+              // The screen may have been left mid-save (fast back-swipe right
+              // after Send) — everything past this point is chat/preview state
+              // that must not update an unmounted screen.
+              if (goneRef.current) return;
               // Smart-naming is fired (fire-and-forget) at project creation and
               // usually lands during this first build. Pull the freshest name so
               // the header shows the smart name instead of the raw-prompt slice.
@@ -221,28 +381,52 @@ export default function BuildScreen() {
                 // gradient-labeled preview already shown never regresses on failure.
                 resolveImages(id, next)
                   .then(({ files: withImages, changed: imgChanged }) => {
-                    if (imgChanged && !goneRef.current) {
-                      setFiles(withImages);
-                      saveFiles(id, withImages).catch(() => {});
-                      autoPreview(withImages);
-                    }
+                    if (!imgChanged || goneRef.current) return;
+                    // Merge only the paths resolveImages actually touched (vs. the
+                    // `next` snapshot it was given) onto whatever `files` is NOW —
+                    // not a blind replace. Otherwise a manual regenerate from the
+                    // Images panel, made while this background resolve was still
+                    // in flight, gets silently overwritten by this stale snapshot.
+                    const touched = Object.keys(withImages).filter(
+                      (path) => withImages[path]?.content !== next[path]?.content,
+                    );
+                    const merged = { ...filesRef.current };
+                    for (const path of touched) merged[path] = withImages[path];
+                    setFiles(merged);
+                    saveFiles(id, merged).catch(() => {});
+                    autoPreview(merged);
+                  })
+                  .catch(() => {});
+                maybePromptReview();
+                // "What's next" chips — best-effort, never blocks the build from
+                // reading as done even if the suggestions call fails or is slow.
+                fetchSuggestions()
+                  .then(({ suggestions }) => {
+                    if (goneRef.current || suggestions.length === 0) return;
+                    setMessages((m) => [...m, { id: `sg${Date.now()}`, role: 'suggestions', items: suggestions }]);
                   })
                   .catch(() => {});
               }
             } catch (e) {
-              setMessages((m) =>
-                m.map((x) =>
-                  x.id === aId && x.role === 'assistant'
-                    ? { ...x, text: `Saved on server, but: ${(e as Error).message}`, streaming: false }
-                    : x,
-                ),
-              );
+              if (!goneRef.current) {
+                setMessages((m) =>
+                  m.map((x) =>
+                    x.id === aId && x.role === 'assistant'
+                      ? { ...x, text: `Saved on server, but: ${(e as Error).message}`, streaming: false }
+                      : x,
+                  ),
+                );
+              }
             } finally {
-              setBusy(false);
-              refreshCredits();
+              runningRef.current = false;
+              if (!goneRef.current) {
+                setBusy(false);
+                refreshCredits();
+              }
             }
           },
           onError: (msg) => {
+            if (goneRef.current) return;
             warn();
             // Turn the raw "Build failed (402): Not enough credits…" into a calm
             // nudge to top up on the web (where credits are bought via Dodo).
@@ -259,20 +443,27 @@ export default function BuildScreen() {
                 { text: t('buyCredits'), onPress: () => router.push('/paywall') },
               ]);
             }
+            runningRef.current = false;
             setBusy(false);
             refreshCredits();
           },
         },
       );
     },
-    [id, user?.id, busy, type, files, messages, refreshCredits, autoPreview, router, t],
+    [id, user?.id, busy, type, files, messages, refreshCredits, autoPreview, router, t, clearPendingImage],
   );
+
+  const onPickSuggestion = useCallback((s: Suggestion) => {
+    setInput(s.prompt);
+    inputRef.current?.focus();
+  }, []);
 
   // Cancel an in-flight build — abort the stream, unlock the UI, and close out
   // the streaming bubble. Guarantees recovery even if the network never replies.
   const cancel = useCallback(() => {
     handleRef.current?.abort();
     handleRef.current = null;
+    runningRef.current = false;
     setBusy(false);
     setMessages((m) =>
       m.map((x) =>
@@ -327,7 +518,70 @@ export default function BuildScreen() {
     }
   }, [loaded, initialPrompt, run, files]);
 
+  const doExportZip = useCallback(async () => {
+    if (!id || exporting) return;
+    setExporting(true);
+    try {
+      const path = await exportProjectZip(id, name);
+      if (goneRef.current) return;
+      if (await Sharing.isAvailableAsync()) {
+        await Sharing.shareAsync(path, { mimeType: 'application/zip', dialogTitle: name || 'Export project' });
+      } else if (!goneRef.current) {
+        showToast('Exported, but sharing is not available on this device', 'error');
+      }
+    } catch (e) {
+      if (!goneRef.current) Alert.alert('Export failed', (e as Error).message);
+    } finally {
+      if (!goneRef.current) setExporting(false);
+    }
+  }, [id, name, exporting, showToast]);
+
+  const doGithubPush = useCallback(async () => {
+    if (!id || pushingGithub) return;
+    setPushingGithub(true);
+    try {
+      const status = await getGithubRepoStatus(id);
+      if (goneRef.current) return;
+      if (!status.connected) {
+        Alert.alert(
+          'GitHub not connected',
+          'Connect GitHub for this account from the web editor first (Account → GitHub), then push from here.',
+        );
+        return;
+      }
+      if (!status.repo) {
+        Alert.alert(
+          'No repo linked',
+          'This project isn’t linked to a GitHub repo yet — create one from the web editor first.',
+        );
+        return;
+      }
+      await pushToGithub(id, files);
+      if (!goneRef.current) showToast(`Pushed to ${status.repo}`, 'success');
+    } catch (e) {
+      if (!goneRef.current) Alert.alert('Push failed', (e as Error).message);
+    } finally {
+      if (!goneRef.current) setPushingGithub(false);
+    }
+  }, [id, files, pushingGithub, showToast]);
+
   const hasFiles = Object.keys(files).length > 0;
+  // Only a TRAILING @mention triggers the picker (typing at the end of the
+  // input) — covers the common case without the complexity of tracking
+  // cursor position through RN's TextInput selection events.
+  const mentionMatch = input.match(/@([\w./-]*)$/);
+  const mentionQuery = mentionMatch ? mentionMatch[1] : null;
+  const onPickMention = useCallback(
+    (path: string) => {
+      // Function replacer, not a template-string replacement — a path
+      // containing "$" (e.g. a Remix-style $id.tsx route in the generated
+      // project) would otherwise be parsed as a special replacement pattern
+      // ($&, $$, etc.) by String.replace and corrupt the inserted text.
+      setInput((prev) => prev.replace(/@([\w./-]*)$/, () => `@${path} `));
+      inputRef.current?.focus();
+    },
+    [],
+  );
 
   return (
     <KeyboardAvoidingView
@@ -392,13 +646,53 @@ export default function BuildScreen() {
               </Text>
             </View>
           }
-          renderItem={({ item }) => <MessageBubble msg={item} />}
+          renderItem={({ item }) => <MessageBubble msg={item} onPickSuggestion={onPickSuggestion} />}
         />
       )}
 
+      {planState === 'none' && autoFixError && !busy ? (
+        <View style={styles.autoFixBanner}>
+          <Ionicons name="warning-outline" size={16} color={brand.warning} />
+          <Text style={styles.autoFixText} numberOfLines={2}>
+            Preview error — AutoFix?
+          </Text>
+          <Pressable
+            onPress={() => {
+              const err = autoFixError;
+              setAutoFixError(null);
+              run(autoFixPrompt(err), undefined, { consumeImage: false });
+            }}
+            style={styles.autoFixConfirm}
+          >
+            <Text style={styles.autoFixConfirmText}>Fix it</Text>
+          </Pressable>
+          <Pressable onPress={() => setAutoFixError(null)} hitSlop={8}>
+            <Ionicons name="close" size={16} color={brand.textMuted} />
+          </Pressable>
+        </View>
+      ) : null}
+
+      {planState === 'none' && mentionQuery !== null ? (
+        <FileMentionPicker query={mentionQuery} files={Object.keys(files)} onPick={onPickMention} />
+      ) : null}
+
+      {planState === 'none' && pendingImagePreview ? (
+        <View style={styles.pendingImageRow}>
+          <Image source={{ uri: pendingImagePreview }} style={styles.pendingImageThumb} contentFit="cover" />
+          <Text style={styles.pendingImageText}>Photo attached</Text>
+          <Pressable onPress={clearPendingImage} hitSlop={8}>
+            <Ionicons name="close-circle" size={18} color={brand.textMuted} />
+          </Pressable>
+        </View>
+      ) : null}
+
       {planState === 'none' && (
       <View style={styles.inputBar}>
+        <Pressable onPress={pickImage} disabled={busy} hitSlop={8} style={styles.cameraBtn}>
+          <Ionicons name="camera-outline" size={22} color={busy ? brand.textFaint : brand.textMuted} />
+        </Pressable>
         <TextInput
+          ref={inputRef}
           style={styles.input}
           placeholder={hasFiles ? t('describeChange') : t('describeApp')}
           placeholderTextColor={brand.textFaint}
@@ -457,6 +751,30 @@ export default function BuildScreen() {
             description: t('viewCodeDesc'),
             onPress: () => router.push(`/code/${id}`),
           },
+          {
+            icon: 'image-outline',
+            label: 'Images',
+            description: 'Regenerate or upgrade generated images',
+            onPress: () => setImagesOpen(true),
+          },
+          {
+            icon: 'library-outline',
+            label: 'Knowledge',
+            description: 'Context the AI always reads for this project',
+            onPress: () => setKnowledgeOpen(true),
+          },
+          {
+            icon: 'download-outline',
+            label: exporting ? 'Exporting…' : 'Export ZIP',
+            description: 'Download the full source, no WyberAi dependency',
+            onPress: doExportZip,
+          },
+          {
+            icon: 'logo-github',
+            label: pushingGithub ? 'Pushing…' : 'Push to GitHub',
+            description: 'Push the latest files to the linked repo',
+            onPress: doGithubPush,
+          },
         ]}
       />
 
@@ -468,14 +786,30 @@ export default function BuildScreen() {
             setReveal({ phase: 'hidden' });
             setTimeout(() => router.push(`/preview/${id}`), 10);
           }}
+          onRuntimeError={(info) => setAutoFixError(info)}
         />
       </SafeWidget>
 
       <ConnectorsSheet
         visible={connectorsOpen}
         onClose={() => setConnectorsOpen(false)}
-        onRun={(prompt) => run(prompt)}
+        onRun={(prompt) => run(prompt, undefined, { consumeImage: false })}
       />
+
+      <ImagesPanelSheet
+        visible={imagesOpen}
+        onClose={() => setImagesOpen(false)}
+        projectId={id}
+        files={files}
+        onFilesChange={(next) => {
+          setFiles(next);
+          if (id) saveFiles(id, next).catch(() => {});
+          autoPreview(next);
+        }}
+        onCreditsChange={() => refreshCredits()}
+      />
+
+      <KnowledgeSheet visible={knowledgeOpen} onClose={() => setKnowledgeOpen(false)} projectId={id} />
     </KeyboardAvoidingView>
   );
 }
@@ -608,12 +942,23 @@ const ps = StyleSheet.create({
   ghostText: { color: brand.textMuted, fontSize: 14, fontWeight: '600' },
 });
 
-function MessageBubble({ msg }: { msg: Msg }) {
+function MessageBubble({ msg, onPickSuggestion }: { msg: Msg; onPickSuggestion: (s: Suggestion) => void }) {
   if (msg.role === 'user') {
     return (
       <View style={[styles.bubble, styles.userBubble]}>
         <Text style={styles.userText}>{msg.text}</Text>
       </View>
+    );
+  }
+  if (msg.role === 'suggestions') {
+    return (
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.suggestionsRow}>
+        {msg.items.map((s, i) => (
+          <Pressable key={i} style={styles.suggestionChip} onPress={() => onPickSuggestion(s)}>
+            <Text style={styles.suggestionText} numberOfLines={1}>{s.title}</Text>
+          </Pressable>
+        ))}
+      </ScrollView>
     );
   }
   const progress = msg.progress ?? [];
@@ -645,7 +990,13 @@ function MessageBubble({ msg }: { msg: Msg }) {
           <BuildTheater progress={progress} />
         </SafeWidget>
       ) : null}
-      {msg.text ? <Text style={styles.aiText}>{msg.text}</Text> : null}
+      {msg.text ? (
+        msg.streaming ? (
+          <StreamingText text={msg.text} style={styles.aiText} />
+        ) : (
+          <Text style={styles.aiText}>{msg.text}</Text>
+        )
+      ) : null}
       {msg.streaming && !msg.text && progress.length === 0 ? (
         <View style={styles.thinkingRow}>
           <ActivityIndicator color={brand.accent} size="small" />
@@ -671,6 +1022,46 @@ const styles = StyleSheet.create({
   progressRow: { flexDirection: 'row', alignItems: 'center', gap: space.sm },
   progressText: { color: brand.textMuted, fontSize: 13 },
   thinkingRow: { flexDirection: 'row', alignItems: 'center', gap: space.sm },
+  suggestionsRow: { gap: space.sm, paddingVertical: 2 },
+  suggestionChip: {
+    backgroundColor: brand.surface,
+    borderWidth: 1,
+    borderColor: brand.border,
+    borderRadius: radius.pill,
+    paddingHorizontal: space.md,
+    paddingVertical: space.sm,
+    maxWidth: 220,
+  },
+  suggestionText: { color: brand.accent, fontSize: 13, fontWeight: '600' },
+  autoFixBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.sm,
+    paddingHorizontal: space.md,
+    paddingVertical: space.sm,
+    backgroundColor: 'rgba(245,158,11,0.1)',
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(245,158,11,0.25)',
+  },
+  autoFixText: { flex: 1, color: brand.warning, fontSize: 13, fontWeight: '600' },
+  autoFixConfirm: {
+    backgroundColor: brand.warning,
+    borderRadius: radius.sm,
+    paddingHorizontal: space.sm + 2,
+    paddingVertical: 5,
+  },
+  autoFixConfirmText: { color: '#1a1206', fontSize: 12.5, fontWeight: '700' },
+  cameraBtn: { padding: space.xs, marginBottom: 2 },
+  pendingImageRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.sm,
+    paddingHorizontal: space.md,
+    paddingTop: space.sm,
+    backgroundColor: brand.surface,
+  },
+  pendingImageThumb: { width: 32, height: 32, borderRadius: radius.sm },
+  pendingImageText: { flex: 1, color: brand.textMuted, fontSize: 12.5 },
   inputBar: {
     flexDirection: 'row',
     alignItems: 'flex-end',

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
   Dimensions,
   Pressable,
   ScrollView,
@@ -9,13 +10,21 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
+import { WebView } from 'react-native-webview';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { tap } from '@/lib/haptics';
 import { FadeInUp, staggerDelay } from '@/components/FadeInUp';
+import { GlassCard } from '@/components/GlassCard';
+import { AGENT_TEAM } from '@/lib/agents/roster';
 import { useT } from '@/lib/i18n/useT';
 import { ONBOARDING_STRINGS } from '@/lib/i18n/dict/onboarding';
 import { brand, font, radius, space } from '@/lib/theme';
+
+// The 5 builder personas (excludes 'orchestrator' — that's the lead role
+// shown inline in the live feed, not a slide-2 card) — same roster the real
+// AgentFeed uses, so onboarding shows the exact team the user will meet.
+const AGENT_CARDS = (['planner', 'coder', 'design', 'security', 'qa'] as const).map((id) => AGENT_TEAM[id]);
 
 export const ONBOARDED_KEY = 'wyber:onboarded';
 
@@ -27,9 +36,9 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
   const { width } = Dimensions.get('window');
   const t = useT(ONBOARDING_STRINGS);
   const SLIDES = [
-    { icon: 'sparkles' as const, title: t('slide1Title'), body: t('slide1Body'), accent: '#0EA5E9' },
-    { icon: 'rocket' as const, title: t('slide2Title'), body: t('slide2Body'), accent: '#22C55E' },
-    { icon: 'phone-portrait' as const, title: t('slide3Title'), body: t('slide3Body'), accent: '#A855F7' },
+    { icon: 'sparkles' as const, title: t('slide1Title'), body: t('slide1Body'), accent: brand.accent },
+    { icon: 'rocket' as const, title: t('slide2Title'), body: t('slide2Body'), accent: brand.success },
+    { icon: 'phone-portrait' as const, title: t('slide3Title'), body: t('slide3Body'), accent: brand.violet },
   ];
   const [page, setPage] = useState(0);
   const scrollRef = useRef<ScrollView>(null);
@@ -101,7 +110,13 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
                 <FadeInUp key={`demo-${page === 0}`} delay={staggerDelay(3)}>
                   <TypeOnDemo active={page === 0} t={t} />
                 </FadeInUp>
-              ) : null}
+              ) : i === 1 ? (
+                <AgentCardsDemo active={page === 1} />
+              ) : (
+                <FadeInUp key={`phone-${page === 2}`} delay={staggerDelay(3)}>
+                  <PhoneMockup active={page === 2} />
+                </FadeInUp>
+              )}
             </View>
           ))}
         </ScrollView>
@@ -161,7 +176,7 @@ function TypeOnDemo({ active, t }: { active: boolean; t: ReturnType<typeof useT<
   }, [active]);
 
   return (
-    <View style={demoStyles.card}>
+    <GlassCard style={demoStyles.card}>
       <View style={demoStyles.promptRow}>
         <Ionicons name="sparkles" size={13} color={brand.accent} />
         <Text style={demoStyles.promptText}>
@@ -175,17 +190,74 @@ function TypeOnDemo({ active, t }: { active: boolean; t: ReturnType<typeof useT<
           <Text style={demoStyles.stepText}>{s}</Text>
         </View>
       ))}
+    </GlassCard>
+  );
+}
+
+// Slide 2 — the agent team, flying in staggered (same roster + colors as the
+// real AgentFeed during a build, so this is a preview of an actual feature,
+// not a mockup of one).
+function AgentCardsDemo({ active }: { active: boolean }) {
+  return (
+    <View style={demoStyles.agentGrid}>
+      {AGENT_CARDS.map((agent, i) => (
+        <FadeInUp key={`${agent.id}-${active}`} delay={staggerDelay(i, 100)} style={demoStyles.agentCardWrap}>
+          <GlassCard style={[demoStyles.agentCard, { borderColor: `${agent.color}55` }]}>
+            <View style={[demoStyles.agentDot, { backgroundColor: agent.color }]} />
+            <Text style={demoStyles.agentName}>{agent.name}</Text>
+            <Text style={demoStyles.agentRole}>{agent.role}</Text>
+          </GlassCard>
+        </FadeInUp>
+      ))}
+    </View>
+  );
+}
+
+// Slide 3 — a phone-frame mockup with a live, miniaturized WebView of the
+// marketing site. Non-interactive (pointerEvents="none") — it's a visual, not
+// a real browser; tapping through it would just feel broken mid-onboarding.
+function PhoneMockup({ active }: { active: boolean }) {
+  const [loaded, setLoaded] = useState(false);
+  const [failed, setFailed] = useState(false);
+  if (!active) return <View style={demoStyles.phoneFrame} />;
+  return (
+    <View style={demoStyles.phoneFrame}>
+      <View style={demoStyles.phoneNotch} />
+      <View style={demoStyles.phoneScreen} pointerEvents="none">
+        {failed ? (
+          // onLoadEnd fires on BOTH success and failure — without a separate
+          // error handler, a DNS hiccup or slow network here would just clear
+          // the loading spinner and leave a blank/broken embedded page during
+          // onboarding, with no indication anything went wrong.
+          <View style={demoStyles.phoneFallback}>
+            <Ionicons name="globe-outline" size={22} color={brand.textFaint} />
+          </View>
+        ) : (
+          <WebView
+            source={{ uri: 'https://wyberai.com' }}
+            style={demoStyles.phoneWebview}
+            onLoadEnd={() => setLoaded(true)}
+            onError={() => setFailed(true)}
+            onHttpError={() => setFailed(true)}
+            scrollEnabled={false}
+          />
+        )}
+        {!loaded && !failed ? (
+          <View style={demoStyles.phoneLoading}>
+            <ActivityIndicator color={brand.accent} />
+          </View>
+        ) : null}
+      </View>
     </View>
   );
 }
 
 const demoStyles = StyleSheet.create({
+  // No backgroundColor/border here — GlassCard supplies both (a solid color
+  // on top of its BlurView would fully cancel the blur on iOS).
   card: {
     width: 280,
     minHeight: 118,
-    backgroundColor: brand.surface,
-    borderWidth: 1,
-    borderColor: brand.border,
     borderRadius: radius.md,
     padding: space.md,
     gap: 7,
@@ -196,6 +268,64 @@ const demoStyles = StyleSheet.create({
   caret: { color: brand.accent },
   stepRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   stepText: { color: brand.textMuted, fontSize: 12.5 },
+  agentGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'center',
+    gap: space.sm,
+    marginTop: space.xs,
+    width: 300,
+  },
+  agentCardWrap: { width: 88 },
+  agentCard: {
+    alignItems: 'center',
+    borderRadius: radius.md,
+    borderWidth: 1,
+    paddingVertical: space.md,
+    paddingHorizontal: space.xs,
+    gap: 4,
+  },
+  agentDot: { width: 10, height: 10, borderRadius: 5, marginBottom: 2 },
+  agentName: { color: brand.text, fontSize: 13, fontFamily: font.displayMedium },
+  agentRole: { color: brand.textFaint, fontSize: 10.5 },
+  phoneFrame: {
+    width: 150,
+    height: 300,
+    borderRadius: 28,
+    borderWidth: 6,
+    borderColor: brand.border,
+    backgroundColor: brand.bg,
+    padding: 4,
+    marginTop: space.xs,
+    alignItems: 'center',
+  },
+  phoneNotch: {
+    width: 50,
+    height: 14,
+    borderRadius: 8,
+    backgroundColor: brand.border,
+    marginBottom: 4,
+  },
+  phoneScreen: {
+    flex: 1,
+    width: '100%',
+    borderRadius: 18,
+    overflow: 'hidden',
+    backgroundColor: brand.bg,
+  },
+  phoneWebview: { flex: 1 },
+  phoneLoading: {
+    ...StyleSheet.absoluteFill,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: brand.bg,
+  },
+  phoneFallback: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: brand.bg,
+  },
 });
 
 const styles = StyleSheet.create({

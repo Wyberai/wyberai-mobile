@@ -13,12 +13,15 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Image } from 'expo-image';
 import * as WebBrowser from 'expo-web-browser';
 import { Ionicons } from '@expo/vector-icons';
+import type { Href } from 'expo-router';
 import { useSession } from '@/ctx/session';
 import { supabase } from '@/lib/supabase';
 import {
   createProject,
+  fetchCommunityTemplates,
   fetchGallery,
   fetchSuggestions,
+  type CommunityTemplate,
   type GalleryEntry,
   type ProjectType,
   type Suggestion,
@@ -27,6 +30,7 @@ import { thunk, tap } from '@/lib/haptics';
 import { FadeInUp, staggerDelay } from '@/components/FadeInUp';
 import { MicButton } from '@/components/MicButton';
 import { SkeletonBox, SkeletonGalleryCard } from '@/components/Skeleton';
+import { useToast } from '@/components/Toast';
 import { projectUrl, type Project } from '@/lib/types';
 import { useT } from '@/lib/i18n/useT';
 import { HOME_STRINGS } from '@/lib/i18n/dict/home';
@@ -66,6 +70,7 @@ export default function HomeScreen() {
   const t = useT(HOME_STRINGS);
   const tp = useT(PROJECTS_STRINGS);
   const { user } = useSession();
+  const showToast = useToast();
   const [prompt, setPrompt] = useState('');
   const [type, setType] = useState<ProjectType>('web');
   const PROJECT_TYPES: { value: ProjectType; labelKey: string; icon: keyof typeof Ionicons.glyphMap }[] = [
@@ -78,6 +83,7 @@ export default function HomeScreen() {
   const [error, setError] = useState<string | null>(null);
   const [gallery, setGallery] = useState<GalleryEntry[]>([]);
   const [galleryLoading, setGalleryLoading] = useState(true);
+  const [templates, setTemplates] = useState<CommunityTemplate[]>([]);
   const [latest, setLatest] = useState<Project | null>(null);
   const [promptFocused, setPromptFocused] = useState(false);
   // "Today's ideas": AI-personalized starter chips. null = loading (skeletons),
@@ -87,8 +93,9 @@ export default function HomeScreen() {
 
   useEffect(() => {
     fetchGallery()
-      .then(setGallery)
+      .then(({ entries }) => setGallery(entries))
       .finally(() => setGalleryLoading(false));
+    fetchCommunityTemplates().then(setTemplates);
     fetchSuggestions()
       .then(({ suggestions, generated }) => {
         setIdeas(suggestions);
@@ -260,6 +267,47 @@ export default function HomeScreen() {
         <Prop icon="shield-checkmark-outline" title={t('securityTitle')} body={t('securityBody')} />
       </FadeInUp>
 
+      {/* Templates — real community-submitted starters, one tap loads the prompt box */}
+      {templates.length > 0 ? (
+        <FadeInUp delay={staggerDelay(3)} style={styles.gallerySection}>
+          <View style={styles.galleryHeader}>
+            <Text style={styles.galleryTitle}>Templates</Text>
+            <Text style={styles.gallerySub}>Start from something the community already built</Text>
+          </View>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.galleryRow}>
+            {templates.slice(0, 10).map((tpl) => (
+              <Pressable
+                key={tpl.id}
+                onPress={() => {
+                  tap();
+                  setPrompt(`Build a ${tpl.name}${tpl.description ? `: ${tpl.description}` : ''}`);
+                  showToast('Added to prompt box', 'success');
+                }}
+                style={({ pressed }) => [styles.galleryCard, pressed && styles.galleryCardPressed]}
+              >
+                {tpl.thumbnail_url ? (
+                  <Image source={{ uri: tpl.thumbnail_url }} style={styles.galleryThumb} contentFit="cover" transition={150} />
+                ) : (
+                  <View style={[styles.galleryThumb, styles.galleryThumbEmpty]}>
+                    <Ionicons name="cube-outline" size={22} color={brand.textFaint} />
+                  </View>
+                )}
+                <View style={styles.galleryCardBody}>
+                  <Text style={styles.galleryCardTitle} numberOfLines={1}>{tpl.name}</Text>
+                  <View style={styles.galleryCardMeta}>
+                    <Text style={styles.galleryHandle} numberOfLines={1}>{tpl.category || 'template'}</Text>
+                    <View style={styles.votes}>
+                      <Ionicons name="download-outline" size={11} color={brand.accent} />
+                      <Text style={styles.votesText}>{tpl.use_count}</Text>
+                    </View>
+                  </View>
+                </View>
+              </Pressable>
+            ))}
+          </ScrollView>
+        </FadeInUp>
+      ) : null}
+
       {/* Community showcase */}
       {galleryLoading ? (
         <View style={styles.gallerySection}>
@@ -275,9 +323,14 @@ export default function HomeScreen() {
         </View>
       ) : gallery.length > 0 ? (
         <FadeInUp delay={staggerDelay(3)} style={styles.gallerySection}>
-          <View style={styles.galleryHeader}>
-            <Text style={styles.galleryTitle}>{t('galleryTitle')}</Text>
-            <Text style={styles.gallerySub}>{t('gallerySub')}</Text>
+          <View style={styles.galleryHeaderRow}>
+            <View style={styles.galleryHeader}>
+              <Text style={styles.galleryTitle}>{t('galleryTitle')}</Text>
+              <Text style={styles.gallerySub}>{t('gallerySub')}</Text>
+            </View>
+            <Pressable onPress={() => router.push('/gallery' as Href)} hitSlop={8}>
+              <Text style={styles.seeAll}>See all</Text>
+            </Pressable>
           </View>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.galleryRow}>
             {gallery.slice(0, 10).map((entry) => (
@@ -495,6 +548,14 @@ const styles = StyleSheet.create({
   propTitle: { color: brand.text, fontSize: 13, fontWeight: '800', marginTop: 3 },
   propBody: { color: brand.textFaint, fontSize: 11, lineHeight: 15 },
   gallerySection: { marginTop: space.xl },
+  galleryHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    justifyContent: 'space-between',
+    paddingRight: space.lg,
+    marginBottom: space.md,
+  },
+  seeAll: { color: brand.accent, fontSize: 13, fontWeight: '700' },
   galleryHeader: { paddingHorizontal: space.lg, gap: 2, marginBottom: space.md },
   galleryTitle: { color: brand.text, fontSize: 19, fontFamily: font.display, letterSpacing: -0.4 },
   gallerySub: { color: brand.textMuted, fontSize: 13 },

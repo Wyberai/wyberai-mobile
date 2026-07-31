@@ -14,12 +14,27 @@
 // untouched by this rewrite — and calls exchangeCodeForSession. Keeping this a
 // pure path-rewrite avoids adding any screen to the navigator: a dedicated
 // auth-callback route became the cold-start screen and hung on a spinner.
+// Set whenever a `/project/:id` deep link is rewritten while the user might be
+// signed out — Stack.Protected hides the (app) group entirely in that case, so
+// the rewritten path below is silently dropped instead of navigated to. The
+// root layout's RootNavigator watches this and replays the navigation once a
+// session lands, instead of leaving the user stranded on the Home tab.
+export let pendingDeepLinkPath: string | null = null;
+
+export function clearPendingDeepLinkPath() {
+  pendingDeepLinkPath = null;
+}
+
 export function redirectSystemPath({ path }: { path: string; initial: boolean }): string | null {
   try {
     if (path.includes('auth-callback')) return '/';
     // wyberai://project/:id deep link — open straight to the preview screen
     const projectMatch = path.match(/^\/project\/([a-zA-Z0-9_-]+)/);
-    if (projectMatch) return `/preview/${projectMatch[1]}`;
+    if (projectMatch) {
+      const rewritten = `/preview/${projectMatch[1]}`;
+      pendingDeepLinkPath = rewritten;
+      return rewritten;
+    }
   } catch {
     // never throw from here — a throw can crash app launch
   }

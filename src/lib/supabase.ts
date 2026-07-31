@@ -1,6 +1,6 @@
 import 'react-native-url-polyfill/auto';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { createClient } from '@supabase/supabase-js';
+import { createChunkedSecureStoreAdapter } from '@/lib/secure-storage';
 
 // These are PUBLIC values (same anon key already shipped in the web bundle).
 // Override per-environment via EXPO_PUBLIC_* in a local .env if you ever point
@@ -22,12 +22,13 @@ const ssrSafeStorage =
         setItem: async () => {},
         removeItem: async () => {},
       }
-    : AsyncStorage;
+    : createChunkedSecureStoreAdapter();
 
 export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
   auth: {
-    // React Native session persistence. AsyncStorage (not SecureStore) because
-    // Supabase sessions can exceed SecureStore's 2KB per-key limit.
+    // Chunked expo-secure-store on native (Keystore/Keychain-backed, encrypted
+    // at rest — sessions used to sit in plaintext AsyncStorage). Falls back to
+    // AsyncStorage on web, where SecureStore has no implementation.
     storage: ssrSafeStorage,
     autoRefreshToken: true,
     persistSession: true,

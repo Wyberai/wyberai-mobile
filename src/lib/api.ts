@@ -186,6 +186,56 @@ export async function fetchCredits(): Promise<number> {
   return Number((data as { credits?: number } | null)?.credits ?? 0);
 }
 
+/** Regenerate one image (server-priced: 1cr standard, 20cr hero quality). */
+export async function regenerateImage(
+  projectId: string,
+  prompt: string,
+  ratio: string,
+  quality?: 'high',
+): Promise<{ url: string; creditsCharged: number; credits: number | null }> {
+  const token = await accessToken();
+  const res = await fetch(`${API_BASE}/api/images/regenerate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    body: JSON.stringify({ projectId, prompt, ratio, ...(quality ? { quality } : {}) }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data.url) throw new Error(data.error || `Regenerate failed (${res.status})`);
+  return { url: data.url, creditsCharged: data.creditsCharged ?? 0, credits: data.credits ?? null };
+}
+
+export type PreviewAccessResult =
+  | { ok: true; free?: boolean; cached?: boolean; creditsCharged?: number }
+  | { ok: false; gate: 'upgrade'; ownerId?: string; cost?: number }
+  | { ok: false; error: string };
+
+/**
+ * Gate a QR/deep-link preview open behind the builder's credit balance
+ * (2cr app / 5cr game, once per viewer per project per day — owner's own
+ * project is always free). Called before rendering the WebView in preview/[id].
+ * The server decides app-vs-game itself from the project's own files — it
+ * can't take a client-supplied flag for something that determines a charge
+ * against a different account (the project owner), since the caller has no
+ * incentive to report it honestly.
+ */
+export async function checkPreviewAccess(projectId: string): Promise<PreviewAccessResult> {
+  try {
+    const token = await accessToken();
+    if (!token) return { ok: false, error: 'Not signed in' };
+    const res = await fetch(`${API_BASE}/api/preview-access`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ projectId }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (res.status === 402) return { ok: false, gate: 'upgrade', ownerId: data.ownerId, cost: data.cost };
+    if (!res.ok) return { ok: false, error: data.error || `Preview access check failed (${res.status})` };
+    return { ok: true, free: data.free, cached: data.cached, creditsCharged: data.creditsCharged };
+  } catch (e) {
+    return { ok: false, error: (e as Error).message };
+  }
+}
+
 /** Save the full file map back to the project (Bearer-authenticated PATCH). */
 export async function saveFiles(projectId: string, files: FileMap): Promise<void> {
   const token = await accessToken();
@@ -442,6 +492,8 @@ export function streamGenerate(
     projectType: ProjectType;
     files: FileMap;
     history?: { role: string; content: string }[];
+    /** Single image attachment — server already supports this (src/app/api/generate/route.ts `image` field). */
+    image?: { base64: string; mimeType: string };
   },
   handlers: {
     onText: (fullText: string) => void;
@@ -491,6 +543,7 @@ export function streamGenerate(
           projectType: params.projectType,
           isFirstBuild,
           stage: 'full',
+          ...(params.image ? { image: params.image } : {}),
         }),
       );
     })
@@ -630,15 +683,43 @@ export type GalleryEntry = {
   created_at: string;
 };
 
-/** This week's approved community gallery, ranked by upvotes. [] on failure. */
-export async function fetchGallery(): Promise<GalleryEntry[]> {
+/**
+ * This week's approved community gallery, ranked by upvotes, plus which
+ * entries the caller has already voted on. { entries: [], votedIds: [] } on
+ * failure. The server only tags `votedIds` when it sees an authenticated
+ * request (mobile has no cookie jar for its anonymous fallback), so this
+ * sends the Bearer token when one exists — signed-out callers just get [].
+ */
+export async function fetchGallery(): Promise<{ entries: GalleryEntry[]; votedIds: string[] }> {
   try {
-    const res = await fetch(`${API_BASE}/api/challenge/entries`);
-    const data = (await res.json().catch(() => ({}))) as { entries?: GalleryEntry[] };
-    return res.ok ? (data.entries ?? []) : [];
+    const token = await accessToken();
+    const res = await fetch(`${API_BASE}/api/challenge/entries`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+    });
+    const data = (await res.json().catch(() => ({}))) as { entries?: GalleryEntry[]; votedIds?: string[] };
+    return res.ok
+      ? { entries: data.entries ?? [], votedIds: data.votedIds ?? [] }
+      : { entries: [], votedIds: [] };
   } catch {
-    return [];
+    return { entries: [], votedIds: [] };
   }
+}
+
+/**
+ * Toggle an upvote on a gallery entry. Anonymous-friendly server-side (the
+ * web app uses a `wv_voter` cookie fallback) — mobile has no cookie jar, so
+ * this always votes as the signed-in user via Bearer token.
+ */
+export async function voteGalleryEntry(entryId: string): Promise<{ voted: boolean; count: number }> {
+  const token = await accessToken();
+  const res = await fetch(`${API_BASE}/api/challenge/vote`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    body: JSON.stringify({ entryId }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || `Vote failed (${res.status})`);
+  return { voted: !!data.voted, count: data.count ?? 0 };
 }
 
 // ── "Today's ideas" (AI-personalized starter prompts) ───────────────────────
@@ -677,6 +758,39 @@ export async function fetchSuggestions(): Promise<{ suggestions: Suggestion[]; g
 // A connector "works" once its API key(s) live in the user's vault; the deploy
 // step injects them as env vars (mirrors the web builder). Supabase/OAuth
 // connectors are deferred — this covers the key-based ones.
+
+export type SecretEntry = { id: string; name: string; preview: string; updatedAt: string };
+
+/** Full vault listing (masked previews, never plaintext) for the Secrets screen. */
+export async function fetchSecrets(): Promise<SecretEntry[]> {
+  try {
+    const token = await accessToken();
+    if (!token) return [];
+    const res = await fetch(`${API_BASE}/api/secrets`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) return [];
+    return ((data.secrets ?? []) as { id: string; name: string; preview: string; updated_at: string }[]).map((s) => ({
+      id: s.id,
+      name: s.name,
+      preview: s.preview,
+      updatedAt: s.updated_at,
+    }));
+  } catch {
+    return [];
+  }
+}
+
+export async function deleteSecret(name: string): Promise<void> {
+  const token = await accessToken();
+  const res = await fetch(`${API_BASE}/api/secrets`, {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    body: JSON.stringify({ name }),
+  });
+  if (!res.ok) throw new Error(`Delete failed (${res.status})`);
+}
 
 /** Names already in the vault (UPPERCASE), for the "✓ Connected" state. */
 export async function listSecretNames(): Promise<Set<string>> {
@@ -737,6 +851,194 @@ export function referralLink(code: string): string {
 }
 
 // ── Project management (RLS-scoped, same as the web dashboard) ──────────────
+/** Fork a project (yours, or a public one) into a new project you own. */
+export async function duplicateProject(projectId: string): Promise<{ id: string; name: string }> {
+  const token = await accessToken();
+  const res = await fetch(`${API_BASE}/api/projects/duplicate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    body: JSON.stringify({ projectId }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data.project) throw new Error(data.error || `Duplicate failed (${res.status})`);
+  return data.project;
+}
+
+/**
+ * Download the project as a ZIP and hand it to the OS share sheet — save to
+ * Files, AirDrop, etc. Uses expo-file-system's cache dir as scratch space.
+ */
+export async function exportProjectZip(projectId: string, projectName: string): Promise<string> {
+  const token = await accessToken();
+  const res = await fetch(`${API_BASE}/api/export`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    body: JSON.stringify({ projectId, format: 'zip' }),
+  });
+  if (!res.ok) {
+    const t = await res.text().catch(() => '');
+    throw new Error(`Export failed (${res.status}): ${t.slice(0, 200)}`);
+  }
+  // The modern expo-file-system API (Paths/File/Directory classes) has no
+  // base64-string write helper — /legacy keeps the old function-based API
+  // that does, and remains an officially supported subpath (not deprecated).
+  const FileSystem = await import('expo-file-system/legacy');
+  const safeName = (projectName || 'project').replace(/[^a-z0-9]/gi, '-');
+  const path = `${FileSystem.cacheDirectory}${safeName}.zip`;
+  const buffer = await res.arrayBuffer();
+  const base64 = arrayBufferToBase64(buffer);
+  await FileSystem.writeAsStringAsync(path, base64, { encoding: FileSystem.EncodingType.Base64 });
+  return path;
+}
+
+// Hermes (RN's default JS engine) has no global btoa/atob and this app
+// carries no base64 polyfill, so this encodes manually rather than adding a
+// new dependency for one call site.
+const B64_CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+function arrayBufferToBase64(buffer: ArrayBuffer): string {
+  const bytes = new Uint8Array(buffer);
+  let out = '';
+  for (let i = 0; i < bytes.length; i += 3) {
+    const b0 = bytes[i];
+    const b1 = i + 1 < bytes.length ? bytes[i + 1] : undefined;
+    const b2 = i + 2 < bytes.length ? bytes[i + 2] : undefined;
+    out += B64_CHARS[b0 >> 2];
+    out += B64_CHARS[((b0 & 0x03) << 4) | (b1 !== undefined ? b1 >> 4 : 0)];
+    out += b1 !== undefined ? B64_CHARS[((b1 & 0x0f) << 2) | (b2 !== undefined ? b2 >> 6 : 0)] : '=';
+    out += b2 !== undefined ? B64_CHARS[b2 & 0x3f] : '=';
+  }
+  return out;
+}
+
+export type NotificationPrefs = Record<string, boolean>;
+
+export async function fetchNotificationPrefs(): Promise<NotificationPrefs> {
+  const token = await accessToken();
+  if (!token) return {};
+  const res = await fetch(`${API_BASE}/api/notifications/preferences`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  const data = await res.json().catch(() => ({}));
+  return (data.prefs as NotificationPrefs) ?? {};
+}
+
+export async function saveNotificationPrefs(prefs: NotificationPrefs): Promise<void> {
+  const token = await accessToken();
+  const res = await fetch(`${API_BASE}/api/notifications/preferences`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    body: JSON.stringify({ prefs }),
+  });
+  if (!res.ok) throw new Error(`Save failed (${res.status})`);
+}
+
+export type PreviewStats = {
+  opensThisWeek: number;
+  uniqueViewers: number;
+  creditsChargedThisMonth: number;
+  daily: { date: string; count: number }[];
+};
+
+/** Owner-only preview activity for a project — see /api/projects/preview-stats. */
+export async function fetchPreviewStats(projectId: string): Promise<PreviewStats | null> {
+  try {
+    const token = await accessToken();
+    if (!token) return null;
+    const res = await fetch(`${API_BASE}/api/projects/preview-stats?projectId=${projectId}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) return null;
+    return await res.json();
+  } catch {
+    return null;
+  }
+}
+
+type ImportResult = { project: { id: string; name: string }; fileCount: number; project_type: string };
+
+/** Import a public (or, if this account has GitHub connected, private) repo as a new project. */
+export async function importFromGithub(url: string, name?: string): Promise<ImportResult> {
+  const token = await accessToken();
+  if (!token) throw new Error('Not signed in');
+  const res = await fetch(`${API_BASE}/api/projects/import-github`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ url, name }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data.project) throw new Error(data.error || `Import failed (${res.status})`);
+  return data;
+}
+
+/** Import a ZIP file (picked via expo-document-picker) as a new project. */
+export async function importFromZip(fileUri: string, fileName: string, name?: string): Promise<ImportResult> {
+  const token = await accessToken();
+  if (!token) throw new Error('Not signed in');
+  const form = new FormData();
+  // RN's fetch/FormData accepts this {uri,name,type} shape for a file part —
+  // it is not a real Blob, but the polyfilled fetch knows to stream from uri.
+  form.append('file', {
+    uri: fileUri,
+    name: fileName,
+    type: 'application/zip',
+  } as unknown as Blob);
+  if (name) form.append('name', name);
+
+  const res = await fetch(`${API_BASE}/api/projects/import`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    body: form,
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data.project) throw new Error(data.error || `Import failed (${res.status})`);
+  return data;
+}
+
+export type GithubStatus = { connected: boolean; repo?: string | null };
+
+/** Account-level connection check (no project context) — for the GitHub settings screen. */
+export async function getGithubAccountStatus(): Promise<boolean> {
+  const token = await accessToken();
+  if (!token) return false;
+  const res = await fetch(`${API_BASE}/api/github`, { headers: { Authorization: `Bearer ${token}` } });
+  return res.ok;
+}
+
+/**
+ * Connection status comes from /api/github's own 401 (it's the source of
+ * truth for "is this account's GitHub connection usable") — not a direct
+ * table read. That table (`github_connections`) isn't in this repo's tracked
+ * schema and its RLS is unverified from here, and `/api/github` already does
+ * the real check server-side with the service-role client.
+ */
+export async function getGithubRepoStatus(projectId: string): Promise<GithubStatus> {
+  const { data } = await supabase.from('projects').select('github_repo').eq('id', projectId).maybeSingle();
+  const repo = (data as { github_repo?: string } | null)?.github_repo ?? null;
+
+  const token = await accessToken();
+  if (!token) return { connected: false, repo };
+  const res = await fetch(`${API_BASE}/api/github`, { headers: { Authorization: `Bearer ${token}` } });
+  return { connected: res.ok, repo };
+}
+
+export async function pushToGithub(projectId: string, files: FileMap): Promise<{ sha: string; url: string }> {
+  const token = await accessToken();
+  if (!token) throw new Error('Not signed in');
+  const res = await fetch(`${API_BASE}/api/github`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({
+      action: 'push',
+      projectId,
+      files,
+      commitMessage: 'Update from WyberAi mobile',
+    }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || `Push failed (${res.status})`);
+  return data;
+}
+
 export async function renameProject(projectId: string, name: string): Promise<void> {
   const { error } = await supabase
     .from('projects')
@@ -793,6 +1095,180 @@ export async function fetchCreditHistory(limit = 30): Promise<CreditEvent[]> {
         createdAt: String(r.created_at),
       };
     });
+  } catch {
+    return [];
+  }
+}
+
+// ── Security / RLS Trust Scanner ────────────────────────────────────────────
+export type SecurityFinding = {
+  table: string;
+  severity: 'critical' | 'high' | 'medium';
+  issue: string;
+  evidence: string;
+  exposedColumns?: string[];
+  fixSql?: string;
+};
+export type SecurityScanReport = {
+  scannedAt: string;
+  reachable: boolean;
+  method: string;
+  tablesScanned: number;
+  score: number;
+  findings: SecurityFinding[];
+  protectedTables: string[];
+  publicRead: string[];
+  note?: string;
+};
+
+export async function runSecurityScan(projectId: string): Promise<SecurityScanReport> {
+  const token = await accessToken();
+  if (!token) throw new Error('Not signed in');
+  const res = await fetch(`${API_BASE}/api/security/rls-scan`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ projectId, action: 'scan' }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || data.message || `Scan failed (${res.status})`);
+  return data as SecurityScanReport;
+}
+
+// ── Cloud database status ───────────────────────────────────────────────────
+export type CloudDatabase = {
+  id: string;
+  status: 'provisioning' | 'ready' | 'deleting' | 'deleted' | 'failed';
+  status_message: string | null;
+  db_host: string | null;
+  db_port: number | null;
+  db_name: string;
+  region: string;
+  db_tier: string;
+  created_at: string;
+};
+export type CloudTable = { name: string; schema: string; rowCount: number | null };
+
+/** null if the project has no provisioned database yet, or on any failure. */
+export async function fetchCloudDatabase(projectId: string): Promise<CloudDatabase | null> {
+  try {
+    const token = await accessToken();
+    if (!token) return null;
+    const res = await fetch(`${API_BASE}/api/cloud/database?projectId=${projectId}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) return null;
+    const data = await res.json().catch(() => null);
+    return data?.id ? (data as CloudDatabase) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** { tables: [], count: 0 } on any failure — never throws, so callers can't get stuck on a network exception. */
+export async function fetchCloudTables(projectId: string): Promise<{ tables: CloudTable[]; count: number }> {
+  try {
+    const token = await accessToken();
+    if (!token) return { tables: [], count: 0 };
+    const res = await fetch(`${API_BASE}/api/cloud/database/tables?projectId=${projectId}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) return { tables: [], count: 0 };
+    const data = await res.json().catch(() => ({}));
+    return { tables: data.tables ?? [], count: data.count ?? 0 };
+  } catch {
+    return { tables: [], count: 0 };
+  }
+}
+
+// ── Collaborators ────────────────────────────────────────────────────────────
+export type Collaborator = {
+  id: string;
+  collaborator_email: string;
+  role: 'viewer' | 'editor';
+  status: string;
+  invited_at: string;
+  accepted_at: string | null;
+};
+
+export async function fetchCollaborators(projectId: string): Promise<Collaborator[]> {
+  try {
+    const token = await accessToken();
+    if (!token) return [];
+    const res = await fetch(`${API_BASE}/api/projects/${projectId}/collaborators`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) return [];
+    const data = await res.json().catch(() => ({}));
+    return data.collaborators ?? [];
+  } catch {
+    return [];
+  }
+}
+
+export async function inviteCollaborator(
+  projectId: string,
+  email: string,
+  role: 'viewer' | 'editor' = 'editor',
+): Promise<void> {
+  const token = await accessToken();
+  if (!token) throw new Error('Not signed in');
+  const res = await fetch(`${API_BASE}/api/projects/${projectId}/collaborators`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ email, role }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || `Invite failed (${res.status})`);
+}
+
+export async function removeCollaborator(projectId: string, collaboratorId: string): Promise<void> {
+  const token = await accessToken();
+  if (!token) throw new Error('Not signed in');
+  const res = await fetch(
+    `${API_BASE}/api/projects/${projectId}/collaborators?id=${collaboratorId}`,
+    { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } },
+  );
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.error || `Remove failed (${res.status})`);
+  }
+}
+
+// ── SEO checks ───────────────────────────────────────────────────────────────
+export type SeoCheck = { id: string; label: string; status: 'pass' | 'warn' | 'fail'; detail: string };
+export type SeoReport = { score: number; checks: SeoCheck[]; scannedAt: string };
+
+export async function runSeoScan(projectId: string): Promise<SeoReport> {
+  const token = await accessToken();
+  if (!token) throw new Error('Not signed in');
+  const res = await fetch(`${API_BASE}/api/seo/scan`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ projectId }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || `SEO scan failed (${res.status})`);
+  return data as SeoReport;
+}
+
+// ── Community templates (for the Home templates strip) ─────────────────────
+export type CommunityTemplate = {
+  id: string;
+  name: string;
+  description: string | null;
+  category: string | null;
+  framework: string | null;
+  thumbnail_url: string | null;
+  use_count: number;
+};
+
+/** Public, no-auth. [] on any failure. */
+export async function fetchCommunityTemplates(category?: string): Promise<CommunityTemplate[]> {
+  try {
+    const qs = category ? `?category=${encodeURIComponent(category)}` : '';
+    const res = await fetch(`${API_BASE}/api/community-templates${qs}`);
+    const data = await res.json().catch(() => ({}));
+    return res.ok ? (data.templates ?? []) : [];
   } catch {
     return [];
   }

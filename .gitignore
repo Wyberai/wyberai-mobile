@@ -43,3 +43,6 @@ example
 # generated native folders
 /ios
 /android
+
+# local gh CLI watch logs
+.last-build-watch.log

@@ -8,6 +8,7 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated';
 import { motion } from '@/lib/theme';
+import { useReducedMotion } from '@/lib/useReducedMotion';
 
 // Entrance animation matched to the web app's @keyframes fadeUp:
 //   from { opacity: 0; transform: translateY(20px) }
@@ -31,11 +32,16 @@ export function FadeInUp({
   duration?: number;
   style?: StyleProp<ViewStyle>;
 }) {
-  const progress = useSharedValue(0);
+  const reducedMotion = useReducedMotion();
+  const progress = useSharedValue(reducedMotion ? 1 : 0);
 
   useEffect(() => {
+    if (reducedMotion) {
+      progress.value = 1;
+      return;
+    }
     progress.value = withDelay(delay, withTiming(1, { duration, easing: WEB_EASE }));
-  }, [delay, duration, progress]);
+  }, [delay, duration, progress, reducedMotion]);
 
   const animatedStyle = useAnimatedStyle(() => ({
     opacity: progress.value,

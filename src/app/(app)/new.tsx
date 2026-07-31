@@ -11,7 +11,7 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import { Stack, useRouter } from 'expo-router';
+import { Stack, useRouter, type Href } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { createProject, type ProjectType } from '@/lib/api';
 import { useT } from '@/lib/i18n/useT';
@@ -117,6 +117,11 @@ export default function NewAppScreen() {
         </Pressable>
 
         <Text style={styles.hint}>{t('creditsHint')}</Text>
+
+        <Pressable style={styles.importLink} onPress={() => router.push('/import' as Href)}>
+          <Ionicons name="download-outline" size={15} color={brand.textMuted} />
+          <Text style={styles.importLinkText}>Or import from GitHub / ZIP</Text>
+        </Pressable>
       </ScrollView>
     </KeyboardAvoidingView>
   );
@@ -196,4 +201,13 @@ const styles = StyleSheet.create({
   ctaDisabled: { opacity: 0.4 },
   ctaText: { color: brand.onAccent, fontSize: 16, fontWeight: '700' },
   hint: { color: brand.textFaint, fontSize: 12, lineHeight: 18, marginTop: space.md, textAlign: 'center' },
+  importLink: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: space.xs,
+    marginTop: space.lg,
+    paddingVertical: space.sm,
+  },
+  importLinkText: { color: brand.textMuted, fontSize: 13, fontWeight: '600' },
 });

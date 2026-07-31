@@ -1,12 +1,14 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import type { Session, User } from '@supabase/supabase-js';
-import { AppState } from 'react-native';
+import { Alert, AppState } from 'react-native';
 import * as WebBrowser from 'expo-web-browser';
 import * as Linking from 'expo-linking';
 import * as AppleAuthentication from 'expo-apple-authentication';
 import { supabase } from '@/lib/supabase';
 import { registerForPushNotifications } from '@/lib/push';
 import { triggerOnboarding, fetchCredits } from '@/lib/api';
+import { getBiometricPreference, setBiometricPreference, canUseBiometrics } from '@/lib/biometric';
+import { clearPendingDeepLinkPath } from '../app/+native-intent';
 
 export type OAuthProvider = 'google' | 'github';
 
@@ -51,6 +53,27 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
 
   const refreshCredits = useCallback(() => {
     fetchCredits().then(setCredits).catch(() => {});
+  }, []);
+
+  // First sign-in only (getBiometricPreference() returns null until the user
+  // answers once): offer Face ID / fingerprint for the QR deep-link flow,
+  // where a fast unlock beats typing an OTP.
+  const offerBiometricOptIn = useCallback(async () => {
+    try {
+      const pref = await getBiometricPreference();
+      if (pref !== null) return;
+      if (!(await canUseBiometrics())) return;
+      Alert.alert(
+        'Enable quick sign-in?',
+        'Use Face ID or your fingerprint to unlock WyberAi instead of typing a code each time.',
+        [
+          { text: 'Not now', style: 'cancel', onPress: () => setBiometricPreference(false) },
+          { text: 'Enable', onPress: () => setBiometricPreference(true) },
+        ],
+      );
+    } catch {
+      // Biometric enrollment check failed — never let this block sign-in.
+    }
   }, []);
 
   useEffect(() => {
@@ -128,6 +151,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       // native SDK init failure here would crash the whole app for every user
       // on every sign-in; deferring it means a misconfiguration only affects
       // the paywall, not the entire app.
+      offerBiometricOptIn();
     }
     if (!uid) {
       registeredFor.current = null;
@@ -137,7 +161,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setCredits(null);
     }
-  }, [session?.user?.id, refreshCredits]);
+  }, [session?.user?.id, refreshCredits, offerBiometricOptIn]);
 
   async function signInWithProvider(provider: OAuthProvider) {
     try {
@@ -211,6 +235,10 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
 
   async function signOut() {
     await supabase.auth.signOut();
+    // A deep link that arrived signed-out and was never claimed must not
+    // replay onto a later, unrelated sign-in on the same device (shared/kiosk
+    // device, or a different user signing in after this one signs out).
+    clearPendingDeepLinkPath();
   }
 
   return (
