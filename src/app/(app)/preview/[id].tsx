@@ -38,7 +38,7 @@ export default function PreviewScreen() {
     try {
       const { data } = await supabase
         .from('projects')
-        .select('files,project_type,published_url,name')
+        .select('files,project_type,published_url,name,mobile_bundle_url,mobile_bundled_at')
         .eq('id', id)
         .maybeSingle();
       setPublishedUrl((data?.published_url as string | null) ?? null);
@@ -47,13 +47,19 @@ export default function PreviewScreen() {
         setState({ phase: 'error', message: 'Nothing to preview yet — build something first.' });
         return;
       }
-      // Mobile apps preview via the Expo Snack web player (real RN runtime =
-      // genuinely interactive, not a static screenshot); web apps via the hosted
-      // preview builder. Both load as a URL in this same WebView (web-rendered,
-      // so iOS 2.5.2 stays satisfied — no native code runs on-device).
       if (data?.project_type === 'mobile') {
-        const html = await buildMobilePreviewHtml(id, files);
-        setState({ phase: 'ready-html', html });
+        // Fast path: use pre-bundled URL if it was cached within the last 30 min
+        // (the web editor fires /api/mobile-bundle after every generation).
+        const bundledAt = data?.mobile_bundled_at as string | null;
+        const bundleUrl = data?.mobile_bundle_url as string | null;
+        const age = bundledAt ? Date.now() - new Date(bundledAt).getTime() : Infinity;
+        if (bundleUrl && age < 30 * 60 * 1000) {
+          setState({ phase: 'ready', url: bundleUrl });
+        } else {
+          // Bundle is stale or missing — build inline (falls back to WyberAi's own server)
+          const html = await buildMobilePreviewHtml(id, files);
+          setState({ phase: 'ready-html', html });
+        }
       } else {
         const url = await buildPreview(id, files);
         setState({ phase: 'ready', url });

@@ -17,6 +17,9 @@
 export function redirectSystemPath({ path }: { path: string; initial: boolean }): string | null {
   try {
     if (path.includes('auth-callback')) return '/';
+    // wyberai://project/:id deep link — open straight to the preview screen
+    const projectMatch = path.match(/^\/project\/([a-zA-Z0-9_-]+)/);
+    if (projectMatch) return `/preview/${projectMatch[1]}`;
   } catch {
     // never throw from here — a throw can crash app launch
   }
