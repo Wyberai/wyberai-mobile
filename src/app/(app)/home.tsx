@@ -68,6 +68,12 @@ export default function HomeScreen() {
   const { user } = useSession();
   const [prompt, setPrompt] = useState('');
   const [type, setType] = useState<ProjectType>('web');
+  const PROJECT_TYPES: { value: ProjectType; labelKey: string; icon: keyof typeof Ionicons.glyphMap }[] = [
+    { value: 'web',     labelKey: 'web',     icon: 'code-slash-outline' },
+    { value: 'mobile',  labelKey: 'mobile',  icon: 'phone-portrait-outline' },
+    { value: 'website', labelKey: 'website', icon: 'globe-outline' },
+    { value: 'saas',    labelKey: 'saas',    icon: 'layers-outline' },
+  ];
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [gallery, setGallery] = useState<GalleryEntry[]>([]);
@@ -138,6 +144,19 @@ export default function HomeScreen() {
         <Text style={styles.heroTitle}>{t('heroTitle')}</Text>
 
         <View style={[styles.promptCard, promptFocused && styles.promptCardFocused]}>
+          {/* Type selector — 4 types in a scrollable row at the top of the card */}
+          <View style={styles.typeRow}>
+            {PROJECT_TYPES.map(pt => (
+              <TypePill
+                key={pt.value}
+                active={type === pt.value}
+                icon={pt.icon}
+                label={t(pt.labelKey)}
+                onPress={() => setType(pt.value)}
+              />
+            ))}
+          </View>
+          <View style={styles.typeRowDivider} />
           <TextInput
             style={styles.promptInput}
             placeholder={t('promptPlaceholder')}
@@ -150,41 +169,25 @@ export default function HomeScreen() {
             editable={!busy}
           />
           <View style={styles.promptBar}>
-            <View style={styles.typeToggle}>
-              <TypePill
-                active={type === 'web'}
-                icon="globe-outline"
-                label={t('web')}
-                onPress={() => setType('web')}
-              />
-              <TypePill
-                active={type === 'mobile'}
-                icon="phone-portrait-outline"
-                label={t('mobile')}
-                onPress={() => setType('mobile')}
-              />
-            </View>
-            <View style={styles.promptActions}>
-              <MicButton value={prompt} onChangeText={setPrompt} disabled={busy} size={32} />
-              <Pressable
-                onPress={onBuild}
-                disabled={busy || !prompt.trim()}
-                style={({ pressed }) => [
-                  styles.buildBtn,
-                  (busy || !prompt.trim()) && styles.buildBtnDisabled,
-                  pressed && styles.buildBtnPressed,
-                ]}
-              >
-                {busy ? (
-                  <ActivityIndicator color={brand.onAccent} size="small" />
-                ) : (
-                  <>
-                    <Ionicons name="sparkles" size={15} color={brand.onAccent} />
-                    <Text style={styles.buildBtnText}>{t('buildIt')}</Text>
-                  </>
-                )}
-              </Pressable>
-            </View>
+            <MicButton value={prompt} onChangeText={setPrompt} disabled={busy} size={32} />
+            <Pressable
+              onPress={onBuild}
+              disabled={busy || !prompt.trim()}
+              style={({ pressed }) => [
+                styles.buildBtn,
+                (busy || !prompt.trim()) && styles.buildBtnDisabled,
+                pressed && styles.buildBtnPressed,
+              ]}
+            >
+              {busy ? (
+                <ActivityIndicator color={brand.onAccent} size="small" />
+              ) : (
+                <>
+                  <Ionicons name="sparkles" size={15} color={brand.onAccent} />
+                  <Text style={styles.buildBtnText}>{t('buildIt')}</Text>
+                </>
+              )}
+            </Pressable>
           </View>
         </View>
         {error ? <Text style={styles.error}>{error}</Text> : null}
@@ -400,13 +403,15 @@ const styles = StyleSheet.create({
   promptBar: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
+    justifyContent: 'flex-end',
+    gap: space.sm,
     padding: space.sm,
     borderTopWidth: 1,
     borderTopColor: brand.border,
     backgroundColor: brand.surfaceAlt,
   },
-  typeToggle: { flexDirection: 'row', gap: 4 },
+  typeRow: { flexDirection: 'row', gap: 4, padding: space.sm, flexWrap: 'wrap' },
+  typeRowDivider: { height: 1, backgroundColor: brand.border },
   promptActions: { flexDirection: 'row', alignItems: 'center', gap: space.sm },
   pill: {
     flexDirection: 'row',

@@ -10,7 +10,7 @@ export const API_BASE = process.env.EXPO_PUBLIC_API_URL ?? 'https://wyberai.com'
 export const PREVIEW_BUILDER =
   process.env.EXPO_PUBLIC_PREVIEW_BUILDER_URL ?? 'https://preview-builder.wyberai.com';
 
-export type ProjectType = 'web' | 'mobile';
+export type ProjectType = 'web' | 'mobile' | 'website' | 'saas';
 export type FileMap = Record<string, { content: string; language?: string }>;
 
 async function accessToken(): Promise<string | null> {
@@ -77,7 +77,7 @@ export async function createProject(opts: {
       .from('projects')
       .insert({
         name: opts.name,
-        framework: 'react-vite',
+        framework: opts.type === 'mobile' ? 'react-native' : 'react-vite',
         user_id: userId,
         initial_prompt: opts.prompt,
         project_type: opts.type,

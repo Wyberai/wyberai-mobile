@@ -16,7 +16,7 @@ import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '@/lib/supabase';
 import { projectUrl, isMobileProject, type Project } from '@/lib/types';
-import { API_BASE, createSnack, deleteProject, publishProject, renameProject, unpublishProject } from '@/lib/api';
+import { API_BASE, deleteProject, publishProject, renameProject, unpublishProject } from '@/lib/api';
 import type { FileMap } from '@/lib/api';
 import { tap, warn } from '@/lib/haptics';
 import { useToast } from '@/components/Toast';
@@ -38,7 +38,6 @@ export default function ProjectDetail() {
   const [project, setProject] = useState<Project | null>(null);
   const [loading, setLoading] = useState(true);
   const [publishing, setPublishing] = useState(false);
-  const [converting, setConverting] = useState(false);
   const [editingName, setEditingName] = useState(false);
   const [draftName, setDraftName] = useState('');
   const [savingName, setSavingName] = useState(false);
@@ -89,37 +88,18 @@ export default function ProjectDetail() {
     }
   }
 
-  async function doConvert() {
-    if (!project || converting) return;
-    setConverting(true);
-    try {
-      const { data } = await supabase
-        .from('projects')
-        .select('files')
-        .eq('id', project.id)
-        .maybeSingle();
-      const files = (data?.files as FileMap) ?? {};
-      if (Object.keys(files).length === 0) {
-        Alert.alert(t('nothingToConvert'), t('nothingToConvertBody'));
-        return;
-      }
-      const snack = await createSnack(project.name || 'WyberAi App', files);
-      // The Snack URL is permanent + shareable: open it on a phone with Expo Go
-      // to run the real native app, or in a browser to test the web player.
-      Alert.alert(
-        t('readyToTest'),
-        t('readyToTestBody'),
-        [
-          { text: t('openInExpo'), onPress: () => WebBrowser.openBrowserAsync(snack.snackUrl).catch(() => {}) },
-          { text: t('share'), onPress: () => Share.share({ message: snack.snackUrl, url: snack.snackUrl }).catch(() => {}) },
-          { text: t('done'), style: 'cancel' },
-        ],
-      );
-    } catch (e) {
-      Alert.alert(t('convertFailed'), (e as Error).message || t('somethingWentWrong'));
-    } finally {
-      setConverting(false);
-    }
+  function doOpenOnDevice() {
+    if (!project) return;
+    const deepLink = `wyberai://project/${project.id}`;
+    Alert.alert(
+      t('openInWyberai'),
+      t('openInWyberaiBody'),
+      [
+        { text: t('open'), onPress: () => WebBrowser.openBrowserAsync(deepLink).catch(() => {}) },
+        { text: t('share'), onPress: () => Share.share({ message: deepLink, url: deepLink }).catch(() => {}) },
+        { text: t('done'), style: 'cancel' },
+      ],
+    );
   }
 
   async function saveName() {
@@ -297,26 +277,24 @@ export default function ProjectDetail() {
             />
           </View>
 
-          {/* Publish is web-only. Mobile (RN) projects export to Expo/EAS. */}
-          {!isMobile ? (
-            <Pressable
-              onPress={() => doPublish(false)}
-              disabled={publishing}
-              style={({ pressed }) => [styles.primary, (pressed || publishing) && styles.primaryPressed]}
-            >
-              {publishing ? (
-                <>
-                  <ActivityIndicator color={brand.onAccent} />
-                  <Text style={styles.primaryText}>{t('publishing')}</Text>
-                </>
-              ) : (
-                <>
-                  <Ionicons name="rocket-outline" size={18} color={brand.onAccent} />
-                  <Text style={styles.primaryText}>{live ? t('republish') : t('publish')}</Text>
-                </>
-              )}
-            </Pressable>
-          ) : null}
+          {/* Publish — all project types can be published to a live URL */}
+          <Pressable
+            onPress={() => doPublish(false)}
+            disabled={publishing}
+            style={({ pressed }) => [styles.primary, (pressed || publishing) && styles.primaryPressed]}
+          >
+            {publishing ? (
+              <>
+                <ActivityIndicator color={brand.onAccent} />
+                <Text style={styles.primaryText}>{t('publishing')}</Text>
+              </>
+            ) : (
+              <>
+                <Ionicons name="rocket-outline" size={18} color={brand.onAccent} />
+                <Text style={styles.primaryText}>{live ? t('republish') : t('publish')}</Text>
+              </>
+            )}
+          </Pressable>
 
           {live ? (
             <>
@@ -334,16 +312,14 @@ export default function ProjectDetail() {
                 <Ionicons name="share-outline" size={18} color={brand.text} />
                 <Text style={styles.secondaryText}>{t('share')}</Text>
               </Pressable>
-              {!isMobile ? (
-                <Pressable
-                  onPress={doUnpublish}
-                  disabled={publishing}
-                  style={({ pressed }) => [styles.secondary, pressed && styles.secondaryPressed]}
-                >
-                  <Ionicons name="cloud-offline-outline" size={18} color={brand.danger} />
-                  <Text style={[styles.secondaryText, { color: brand.danger }]}>{t('takeOfflineAction')}</Text>
-                </Pressable>
-              ) : null}
+              <Pressable
+                onPress={doUnpublish}
+                disabled={publishing}
+                style={({ pressed }) => [styles.secondary, pressed && styles.secondaryPressed]}
+              >
+                <Ionicons name="cloud-offline-outline" size={18} color={brand.danger} />
+                <Text style={[styles.secondaryText, { color: brand.danger }]}>{t('takeOfflineAction')}</Text>
+              </Pressable>
             </>
           ) : isMobile ? (
             <>
@@ -365,27 +341,15 @@ export default function ProjectDetail() {
                 <Text style={styles.secondaryText}>{t('sharePreviewLink')}</Text>
               </Pressable>
               <Pressable
-                onPress={doConvert}
-                disabled={converting}
-                style={({ pressed }) => [styles.primary, (pressed || converting) && styles.primaryPressed]}
+                onPress={doOpenOnDevice}
+                style={({ pressed }) => [styles.secondary, pressed && styles.secondaryPressed]}
               >
-                {converting ? (
-                  <>
-                    <ActivityIndicator color={brand.onAccent} />
-                    <Text style={styles.primaryText}>{t('converting')}</Text>
-                  </>
-                ) : (
-                  <>
-                    <Ionicons name="phone-portrait-outline" size={18} color={brand.onAccent} />
-                    <Text style={styles.primaryText}>{t('convertToMobile')}</Text>
-                  </>
-                )}
+                <Ionicons name="phone-portrait-outline" size={18} color={brand.text} />
+                <Text style={styles.secondaryText}>{t('openOnDevice')}</Text>
               </Pressable>
               <View style={styles.notice}>
                 <Ionicons name="information-circle-outline" size={18} color={brand.textMuted} />
-                <Text style={styles.noticeText}>
-                  {t('mobileNotice')}
-                </Text>
+                <Text style={styles.noticeText}>{t('mobileNotice')}</Text>
               </View>
             </>
           ) : null}

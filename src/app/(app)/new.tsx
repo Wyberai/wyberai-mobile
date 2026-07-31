@@ -22,6 +22,11 @@ export default function NewAppScreen() {
   const router = useRouter();
   const t = useT(NEW_APP_STRINGS);
   const [type, setType] = useState<ProjectType>('web');
+  const placeholder =
+    type === 'mobile'  ? t('placeholderMobile')
+    : type === 'website' ? t('placeholderWebsite')
+    : type === 'saas'    ? t('placeholderSaas')
+    : t('placeholderWeb');
   const [prompt, setPrompt] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -59,19 +64,15 @@ export default function NewAppScreen() {
       <Stack.Screen options={{ title: t('screenTitle') }} />
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
         <Text style={styles.label}>{t('whatBuilding')}</Text>
-        <View style={styles.segment}>
-          <SegOption
-            active={type === 'web'}
-            icon="globe-outline"
-            label={t('webApp')}
-            onPress={() => setType('web')}
-          />
-          <SegOption
-            active={type === 'mobile'}
-            icon="phone-portrait-outline"
-            label={t('mobileApp')}
-            onPress={() => setType('mobile')}
-          />
+        <View style={styles.segGrid}>
+          <View style={styles.segRow}>
+            <SegOption active={type === 'web'}     icon="code-slash-outline"       label={t('webApp')}     onPress={() => setType('web')} />
+            <SegOption active={type === 'mobile'}  icon="phone-portrait-outline"   label={t('mobileApp')}  onPress={() => setType('mobile')} />
+          </View>
+          <View style={styles.segRow}>
+            <SegOption active={type === 'website'} icon="globe-outline"            label={t('websiteApp')} onPress={() => setType('website')} />
+            <SegOption active={type === 'saas'}    icon="layers-outline"           label={t('saasApp')}    onPress={() => setType('saas')} />
+          </View>
         </View>
 
         <Text style={[styles.label, { marginTop: space.lg }]}>{t('describeIt')}</Text>
@@ -82,7 +83,7 @@ export default function NewAppScreen() {
         >
           <TextInput
             style={[styles.textarea, focused && styles.textareaFocused]}
-            placeholder={type === 'mobile' ? t('placeholderMobile') : t('placeholderWeb')}
+            placeholder={placeholder}
             placeholderTextColor={brand.textFaint}
             value={prompt}
             onChangeText={setPrompt}
@@ -150,6 +151,8 @@ const styles = StyleSheet.create({
   content: { padding: space.lg },
   label: { color: brand.textMuted, fontSize: 13, fontWeight: '600', marginBottom: space.sm },
   segment: { flexDirection: 'row', gap: space.sm },
+  segGrid: { gap: space.sm },
+  segRow: { flexDirection: 'row', gap: space.sm },
   seg: {
     flex: 1,
     flexDirection: 'row',
