@@ -204,12 +204,10 @@ export async function saveFiles(projectId: string, files: FileMap): Promise<void
 }
 
 /**
- * Build an in-app mobile (react-native-web) preview and return an HTML document
- * to load directly in the WebView. LEGACY/FALLBACK: the react-native-web shim
- * layer renders many apps as a static, non-interactive screenshot. The primary
- * mobile preview is now the Expo Snack embed (buildMobilePreviewUrl) which runs
- * the real RN runtime. Kept as a fallback. Now timeout-guarded so a stalled
- * bundle surfaces an error instead of spinning forever.
+ * PRIMARY mobile preview: bundle the app via WyberAi's own react-native-web
+ * bundler and return a self-contained HTML document to load inline in the
+ * WebView. Zero external APIs — everything runs on WyberAi's own servers.
+ * Timeout-guarded so a stalled bundle surfaces an error instead of spinning.
  */
 export async function buildMobilePreviewHtml(projectId: string, files: FileMap): Promise<string> {
   const token = await accessToken();
@@ -231,12 +229,9 @@ export async function buildMobilePreviewHtml(projectId: string, files: FileMap):
 }
 
 /**
- * PRIMARY mobile preview: convert the app to an Expo Snack and return the
- * embedded web-player URL. The Snack web player runs the REAL React Native
- * runtime, so the generated app is genuinely interactive (unlike the static
- * react-native-web fallback above). Loaded as { uri } in the WebView — which
- * keeps it web-rendered (iOS 2.5.2 safe: no native code executes on-device).
- * Timeout-guarded via createSnack (30s).
+ * @deprecated — no longer used by the companion app. Call buildMobilePreviewHtml
+ * instead (WyberAi's own bundler, zero external API dependency).
+ * Kept to avoid breaking any callers that may reference it outside this repo.
  */
 export async function buildMobilePreviewUrl(name: string, files: FileMap): Promise<string> {
   const { embedUrl } = await createSnack(name || 'WyberAi Mobile App', files);

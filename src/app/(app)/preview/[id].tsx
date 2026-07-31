@@ -5,7 +5,7 @@ import { WebView } from 'react-native-webview';
 import { Ionicons } from '@expo/vector-icons';
 import { Spinner } from '@/components/Spinner';
 import { supabase } from '@/lib/supabase';
-import { buildPreview, buildMobilePreviewUrl, type FileMap } from '@/lib/api';
+import { buildPreview, buildMobilePreviewHtml, type FileMap } from '@/lib/api';
 import { useT } from '@/lib/i18n/useT';
 import { PREVIEW_SCREEN_STRINGS } from '@/lib/i18n/dict/preview-screen';
 import { brand, radius, space } from '@/lib/theme';
@@ -52,8 +52,8 @@ export default function PreviewScreen() {
       // preview builder. Both load as a URL in this same WebView (web-rendered,
       // so iOS 2.5.2 stays satisfied — no native code runs on-device).
       if (data?.project_type === 'mobile') {
-        const url = await buildMobilePreviewUrl((data?.name as string) || 'App', files);
-        setState({ phase: 'ready', url });
+        const html = await buildMobilePreviewHtml(id, files);
+        setState({ phase: 'ready-html', html });
       } else {
         const url = await buildPreview(id, files);
         setState({ phase: 'ready', url });
