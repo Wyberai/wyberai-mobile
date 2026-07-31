@@ -401,7 +401,7 @@ export async function planProject(prompt: string, projectType: ProjectType): Pro
       'Content-Type': 'application/json',
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
-    body: JSON.stringify({ prompt, framework: 'react-vite', fileContext: '', phase: 'plan', projectType }),
+    body: JSON.stringify({ prompt, framework: projectType === 'mobile' ? 'react-native' : 'react-vite', fileContext: '', phase: 'plan', projectType }),
   });
   const data = (await res.json().catch(() => ({}))) as Plan & { error?: string };
   if (res.status === 402) throw new Error('Not enough credits to plan (5 credits). Top up, or just build.');
@@ -483,7 +483,7 @@ export function streamGenerate(
       xhr.send(
         JSON.stringify({
           prompt: params.prompt,
-          framework: 'react-vite',
+          framework: params.projectType === 'mobile' ? 'react-native' : 'react-vite',
           fileContext,
           history: params.history ?? [],
           userId: params.userId,

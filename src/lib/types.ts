@@ -1,7 +1,7 @@
 // Mirrors the columns the mobile app reads from the shared Supabase project.
 // Kept in sync with the web app's src/lib/supabase/types.ts (subset).
 
-export type Framework = 'react-vite' | 'vue' | 'vanilla' | 'next';
+export type Framework = 'react-vite' | 'react-native' | 'vue' | 'vanilla' | 'next';
 
 export interface Project {
   id: string;
