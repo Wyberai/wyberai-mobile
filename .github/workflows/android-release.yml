@@ -135,6 +135,13 @@ jobs:
           SENTRY_ORG: ${{ vars.SENTRY_ORG }}
           SENTRY_PROJECT: ${{ vars.SENTRY_PROJECT }}
           SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          # Org lives on Sentry's US data region (see the ingest host in
+          # EXPO_PUBLIC_SENTRY_DSN: *.ingest.us.sentry.io) — sentry-cli defaults
+          # to the global https://sentry.io control plane, which rejected a
+          # region-scoped org auth token with a bare "401 Invalid token" (no
+          # other hint). Pointing it at the matching regional API host is
+          # required for a region-scoped token to authenticate at all.
+          SENTRY_URL: https://us.sentry.io
           # ORG_GRADLE_PROJECT_<name> exposes <name> as a Gradle project property,
           # which plugins/withReleaseSigning.js reads. Keystore path is relative
           # to android/app (Gradle resolves signingConfig storeFile from there).
