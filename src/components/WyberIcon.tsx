@@ -1,20 +1,36 @@
-import Svg, { Path } from 'react-native-svg';
+import Svg, { Rect, Path } from 'react-native-svg';
 import { brand } from '@/lib/theme';
 
-// Geometric "W" mark — abstract, not a trace of the raster icon.png (which
-// can't be vectorized without image-analysis tooling this session doesn't
-// have). Two overlapping chevrons on a rounded square, in the brand accent —
-// reads as a "W" at any size, and is a real SVG so it can be Reanimated
-// independently of the raster icon (splash sequence, onboarding).
-export function WyberIcon({ size = 32, color = brand.accent }: { size?: number; color?: string }) {
+// Exact port of the real brand mark (src/components/shared/WyberLogo.tsx in
+// the web repo) — a blue rounded-square badge with two white chevrons, NOT a
+// literal "W". An earlier pass here shipped a hand-guessed zigzag stroke
+// instead of this, because it couldn't vectorize the raster icon.png without
+// image-analysis tooling — that was a real, visible logo bug, not a
+// stopgap worth shipping quietly. Same viewBox/paths as the web mark, so any
+// design change to one should be mirrored to the other by hand.
+export function WyberIcon({
+  size = 32,
+  showBackground = true,
+  markColor = brand.onAccent,
+}: {
+  size?: number;
+  /** false when the icon already sits on a solid brand.accent background
+   * (e.g. the full-bleed splash overlay) — the rounded-square badge would
+   * otherwise render as an invisible blue-on-blue box. */
+  showBackground?: boolean;
+  markColor?: string;
+}) {
   return (
     <Svg width={size} height={size} viewBox="0 0 32 32" fill="none">
+      {showBackground ? <Rect width={32} height={32} rx={8} fill={brand.accent} /> : null}
+      <Path d="M20 7L11 16L20 25" stroke={markColor} strokeWidth={2.8} strokeLinecap="round" strokeLinejoin="round" />
       <Path
-        d="M6 10L11 22L16 13L21 22L26 10"
-        stroke={color}
-        strokeWidth={3.2}
+        d="M23 11L28 16L23 21"
+        stroke={markColor}
+        strokeWidth={2.8}
         strokeLinecap="round"
         strokeLinejoin="round"
+        opacity={0.4}
       />
     </Svg>
   );

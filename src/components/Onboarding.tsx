@@ -16,6 +16,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { tap } from '@/lib/haptics';
 import { FadeInUp, staggerDelay } from '@/components/FadeInUp';
 import { GlassCard } from '@/components/GlassCard';
+import { WyberIcon } from '@/components/WyberIcon';
+import { WyberWordmark } from '@/components/WyberWordmark';
 import { AGENT_TEAM } from '@/lib/agents/roster';
 import { useT } from '@/lib/i18n/useT';
 import { ONBOARDING_STRINGS } from '@/lib/i18n/dict/onboarding';
@@ -68,9 +70,10 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
       />
       <SafeAreaView style={styles.safe}>
         <View style={styles.topBar}>
-          <Text style={styles.wordmark}>
-            Wyber<Text style={styles.wordmarkAccent}>Ai</Text>
-          </Text>
+          <View style={styles.brandRow}>
+            <WyberIcon size={26} />
+            <WyberWordmark width={104} />
+          </View>
           <Pressable onPress={finish} hitSlop={10}>
             <Text style={styles.skip}>{t('skip')}</Text>
           </Pressable>
@@ -91,14 +94,18 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
               {/* key re-triggers the entrance stagger every time this slide
                   becomes the active page — the pager itself is untouched. */}
               <FadeInUp key={`icon-${i}-${page === i}`} delay={staggerDelay(0)}>
-                <View
-                  style={[
-                    styles.slideIcon,
-                    { backgroundColor: `${s.accent}22`, borderColor: `${s.accent}55` },
-                  ]}
-                >
-                  <Ionicons name={s.icon} size={40} color={s.accent} />
-                </View>
+                {i === 0 ? (
+                  <WyberIcon size={64} />
+                ) : (
+                  <View
+                    style={[
+                      styles.slideIcon,
+                      { backgroundColor: `${s.accent}22`, borderColor: `${s.accent}55` },
+                    ]}
+                  >
+                    <Ionicons name={s.icon} size={40} color={s.accent} />
+                  </View>
+                )}
               </FadeInUp>
               <FadeInUp key={`title-${i}-${page === i}`} delay={staggerDelay(1)}>
                 <Text style={styles.slideTitle}>{s.title}</Text>
@@ -338,8 +345,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: space.lg,
     paddingTop: space.md,
   },
-  wordmark: { color: brand.text, fontSize: 22, fontFamily: font.display, letterSpacing: -0.5 },
-  wordmarkAccent: { color: brand.accent },
+  brandRow: { flexDirection: 'row', alignItems: 'center', gap: space.sm },
   skip: { color: brand.textMuted, fontSize: 14, fontWeight: '600' },
   pager: { flex: 1 },
   slide: {

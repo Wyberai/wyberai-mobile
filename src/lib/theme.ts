@@ -28,9 +28,6 @@ export const brand = {
   // Secondary accent — onboarding's agent-team slide, kept distinct from the
   // primary sky accent so multi-slide/multi-card moments can differentiate.
   violet: '#A855F7',
-  // Light-tinted accent for text/icons drawn on a solid accent background
-  // (e.g. the splash overlay's wordmark), where a plain white reads flatter.
-  accentSoft: '#DCF3FF',
 
   // Glassmorphic surfaces (GlassCard's Android fallback, tab bar, sheet
   // headers) — translucent, so these are independent of `surface`/`border`

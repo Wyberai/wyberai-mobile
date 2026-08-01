@@ -21,6 +21,8 @@ import { OfflineScreen } from '@/components/OfflineScreen';
 import { UpdateRequiredModal } from '@/components/UpdateRequiredModal';
 import { BiometricLockScreen } from '@/components/BiometricLockScreen';
 import { BrandedSplashOverlay } from '@/components/BrandedSplashOverlay';
+import { WyberIcon } from '@/components/WyberIcon';
+import { WyberWordmark } from '@/components/WyberWordmark';
 import { brand } from '@/lib/theme';
 import { isBelowMinVersion } from '@/lib/semver';
 import { canUseBiometrics, getBiometricPreference } from '@/lib/biometric';
@@ -183,6 +185,12 @@ function RootNavigator() {
   }, [session, runBiometricCheck]);
 
   if (isLoading || onboarded === null) {
+    // Matches BrandedSplashOverlay's settled frame (icon + wordmark, same
+    // dark background) instead of a bare spinner — the overlay's own ~900ms
+    // entrance animation has no idea how long session/onboarded resolution
+    // actually takes, so if this is reached before that data is ready, it
+    // must look like a continuation of the splash, not a downgrade to a
+    // generic loading screen.
     return (
       <View
         style={{
@@ -190,9 +198,14 @@ function RootNavigator() {
           backgroundColor: brand.bg,
           alignItems: 'center',
           justifyContent: 'center',
+          gap: 14,
         }}
       >
-        <Spinner />
+        <WyberIcon size={56} />
+        <WyberWordmark width={130} />
+        <View style={{ marginTop: 10 }}>
+          <Spinner />
+        </View>
       </View>
     );
   }

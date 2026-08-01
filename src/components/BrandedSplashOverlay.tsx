@@ -75,10 +75,10 @@ export function BrandedSplashOverlay({ onDone }: { onDone: () => void }) {
     <Animated.View style={[styles.fill, fillStyle]} pointerEvents="none">
       <View style={styles.center}>
         <Animated.View style={iconStyle}>
-          <WyberIcon size={56} color={brand.onAccent} />
+          <WyberIcon size={56} />
         </Animated.View>
         <Animated.View style={[styles.wordmarkWrap, wordmarkStyle]}>
-          <WyberWordmark width={130} color={brand.onAccent} accentColor={brand.accentSoft} />
+          <WyberWordmark width={130} />
         </Animated.View>
       </View>
     </Animated.View>
@@ -86,7 +86,7 @@ export function BrandedSplashOverlay({ onDone }: { onDone: () => void }) {
 }
 
 const styles = StyleSheet.create({
-  fill: { ...StyleSheet.absoluteFill, backgroundColor: brand.accent, zIndex: 1000 },
+  fill: { ...StyleSheet.absoluteFill, backgroundColor: brand.bg, zIndex: 1000 },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 14 },
   wordmarkWrap: { alignItems: 'center' },
 });
