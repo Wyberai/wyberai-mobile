@@ -125,6 +125,16 @@ jobs:
           # Sentry DSN is not secret (same threat model as any other client-side
           # analytics key — it can only accept error reports, not read data).
           EXPO_PUBLIC_SENTRY_DSN: ${{ vars.EXPO_PUBLIC_SENTRY_DSN }}
+          # SENTRY_ORG/SENTRY_PROJECT are plain identifiers (repo variables);
+          # SENTRY_AUTH_TOKEN is the actual credential (repo secret). All three
+          # are read directly by sentry-cli during the release bundle task —
+          # without them the Sentry Android Gradle plugin's sourcemap upload
+          # step fails outright with "An organization ID or slug is required",
+          # since app.json's @sentry/react-native plugin has no org/project
+          # config and falls back entirely to these env vars.
+          SENTRY_ORG: ${{ vars.SENTRY_ORG }}
+          SENTRY_PROJECT: ${{ vars.SENTRY_PROJECT }}
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
           # ORG_GRADLE_PROJECT_<name> exposes <name> as a Gradle project property,
           # which plugins/withReleaseSigning.js reads. Keystore path is relative
           # to android/app (Gradle resolves signingConfig storeFile from there).
