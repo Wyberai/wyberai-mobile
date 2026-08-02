@@ -142,6 +142,11 @@ jobs:
           # other hint). Pointing it at the matching regional API host is
           # required for a region-scoped token to authenticate at all.
           SENTRY_URL: https://us.sentry.io
+          # Diagnostic only — the plain "401 Invalid token" gives no hint
+          # WHY (bad token value vs wrong scope vs wrong org/project vs wrong
+          # region). Debug logging shows the actual request sentry-cli makes
+          # without printing the token itself.
+          SENTRY_LOG_LEVEL: debug
           # ORG_GRADLE_PROJECT_<name> exposes <name> as a Gradle project property,
           # which plugins/withReleaseSigning.js reads. Keystore path is relative
           # to android/app (Gradle resolves signingConfig storeFile from there).
