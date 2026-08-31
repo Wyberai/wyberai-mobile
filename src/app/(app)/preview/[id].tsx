@@ -203,6 +203,8 @@ export default function PreviewScreen() {
           domStorageEnabled
           mediaPlaybackRequiresUserAction={false}
           allowsInlineMediaPlayback
+          onError={(e) => setState({ phase: 'error', message: e.nativeEvent.description || 'Failed to load preview' })}
+          onHttpError={(e) => setState({ phase: 'error', message: `Preview server returned ${e.nativeEvent.statusCode}` })}
         />
         {!audioUnlocked ? (
           <Pressable
@@ -295,6 +297,8 @@ export default function PreviewScreen() {
             // failure. Its own calm fallback card is already showing inside the
             // WebView, so we intentionally don't stack another error over it.
           }}
+          onError={(e) => setState({ phase: 'error', message: e.nativeEvent.description || 'Failed to load preview' })}
+          onHttpError={(e) => setState({ phase: 'error', message: `Preview server returned ${e.nativeEvent.statusCode}` })}
         />
       )}
     </View>

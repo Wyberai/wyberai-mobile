@@ -5,6 +5,8 @@ import {
   applyEdits,
   hasEditBlocks,
 } from './file-parser';
+import { parsePlanManifest, type PlannedFile } from './staged-plan';
+import { track } from './track';
 
 export const API_BASE = process.env.EXPO_PUBLIC_API_URL ?? 'https://wyberai.com';
 export const PREVIEW_BUILDER =
@@ -95,6 +97,7 @@ export async function createProject(opts: {
   // (only renames while the name is still the raw prompt slice), so this never
   // blocks navigation and the title refreshes on the next screen load.
   autoNameProject(projectId, opts.prompt);
+  track('project_created', { type: opts.type, has_prompt: !!opts.prompt });
   return projectId;
 }
 
@@ -177,13 +180,18 @@ export async function resolveImages(
   }
 }
 
-/** Read the signed-in user's current credit balance (0 if unknown). */
-export async function fetchCredits(): Promise<number> {
+/**
+ * Credits + plan in one query — `profiles.plan` is the same column the Dodo
+ * webhook writes on web (see lib/credits.ts PlanId). Powers the model-tier
+ * picker's plan-gating (tierAllowedForPlan) in build/[id].tsx.
+ */
+export async function fetchAccount(): Promise<{ credits: number; plan: string }> {
   const { data: userData } = await supabase.auth.getUser();
   const userId = userData.user?.id;
-  if (!userId) return 0;
-  const { data } = await supabase.from('profiles').select('credits').eq('id', userId).maybeSingle();
-  return Number((data as { credits?: number } | null)?.credits ?? 0);
+  if (!userId) return { credits: 0, plan: 'free' };
+  const { data } = await supabase.from('profiles').select('credits,plan').eq('id', userId).maybeSingle();
+  const row = data as { credits?: number; plan?: string } | null;
+  return { credits: Number(row?.credits ?? 0), plan: row?.plan || 'free' };
 }
 
 /** Regenerate one image (server-priced: 1cr standard, 20cr hero quality). */
@@ -387,6 +395,7 @@ export async function publishProject(projectId: string, override = false): Promi
   if (!res.ok || !data.publishedUrl) {
     return { ok: false, blocked: false, error: data.error || `Publish failed (${res.status})` };
   }
+  track('app_published', { projectId });
   return { ok: true, publishedUrl: data.publishedUrl, subdomain: data.subdomain ?? '' };
 }
 
@@ -494,6 +503,32 @@ export function streamGenerate(
     history?: { role: string; content: string }[];
     /** Single image attachment — server already supports this (src/app/api/generate/route.ts `image` field). */
     image?: { base64: string; mimeType: string };
+    /**
+     * Staged-build orchestration (see lib/staged-plan.ts + build/[id].tsx's
+     * runStagedBuild) — omit all of these for the classic one-shot 'full'
+     * build, which stays the default. Mirrors the web app's ChatPanel
+     * executeGeneration options of the same names.
+     */
+    stage?: 'scaffold' | 'fill' | 'wire';
+    stageFiles?: string[];
+    stagePurposes?: string[];
+    internalPass?: boolean;
+    finalPass?: boolean;
+    buildId?: string;
+    buildComplexity?: 'HIGH' | 'LOW';
+    totalPlannedFiles?: number;
+    /** Explicit model-tier pick from build/[id].tsx's picker (see lib/credits.ts).
+     * Omit to let the server's own auto-routing decide, same as web's
+     * `tierTouched ? modelTier : undefined`. Server validates this against the
+     * user's real plan (tierAllowedForPlan) regardless of what's sent here. */
+    modelTier?: 'fast' | 'default' | 'premium' | 'fable' | 'gpt' | 'wybercode';
+    /** Attached text-like files (extracted content) — matches the web app's
+     * ChatPanel `attachedText` field. */
+    attachedText?: { name: string; content: string }[];
+    /** Attached PDFs — sent as raw base64, read server-side as a native
+     * Claude document content block (text/layout/tables), no extraction
+     * needed client-side. Matches the web app's `documents` field. */
+    documents?: { name: string; base64: string }[];
   },
   handlers: {
     onText: (fullText: string) => void;
@@ -542,7 +577,17 @@ export function streamGenerate(
           projectId: params.projectId,
           projectType: params.projectType,
           isFirstBuild,
-          stage: 'full',
+          stage: params.stage ?? 'full',
+          ...(params.stageFiles ? { stageFiles: params.stageFiles } : {}),
+          ...(params.stagePurposes ? { stagePurposes: params.stagePurposes } : {}),
+          ...(params.internalPass !== undefined ? { internalPass: params.internalPass } : {}),
+          ...(params.finalPass !== undefined ? { finalPass: params.finalPass } : {}),
+          ...(params.buildId ? { buildId: params.buildId } : {}),
+          ...(params.buildComplexity ? { buildComplexity: params.buildComplexity } : {}),
+          ...(params.totalPlannedFiles !== undefined ? { totalPlannedFiles: params.totalPlannedFiles } : {}),
+          ...(params.modelTier ? { modelTier: params.modelTier } : {}),
+          ...(params.attachedText?.length ? { attachedText: params.attachedText } : {}),
+          ...(params.documents?.length ? { documents: params.documents } : {}),
           ...(params.image ? { image: params.image } : {}),
         }),
       );
@@ -558,6 +603,133 @@ export function streamGenerate(
       try { xhr.abort(); } catch { /* already done */ }
     },
   };
+}
+
+export type AssistResult =
+  | { intent: 'chat'; text: string }
+  | { intent: 'action'; handoffPrompt: string };
+export type AssistHandle = { abort: () => void };
+
+/**
+ * The conversational lane (see lib/intent.ts classifyIntent) — questions,
+ * confirmations, greetings. Hits /api/assist, which deducts NO credits and
+ * never touches the project's files. If `forceChat` is false the server may
+ * still decide the message is really a build/edit request (either its own
+ * Haiku classification, or the reply model self-handing-off mid-answer) —
+ * either way the response carries `X-Assist-Intent: action` and the caller
+ * should route to streamGenerate instead. RN's fetch can't read a streamed
+ * body incrementally (same limitation streamGenerate works around), so this
+ * waits for the full response rather than progressively repainting a
+ * partial chat reply that might still turn out to be a build handoff.
+ */
+export function streamAssist(
+  params: {
+    prompt: string;
+    fileContext: string;
+    history: { role: string; content: string }[];
+    hasFiles: boolean;
+    forceChat: boolean;
+    projectId: string;
+  },
+  handlers: {
+    onDone: (result: AssistResult) => void;
+    onError: (message: string) => void;
+  },
+): AssistHandle {
+  const xhr = new XMLHttpRequest();
+  xhr.open('POST', `${API_BASE}/api/assist`);
+  xhr.setRequestHeader('Content-Type', 'application/json');
+  xhr.timeout = 60_000;
+
+  let aborted = false;
+  withTimeout(accessToken(), 15_000, 'Sign-in check')
+    .then((token) => {
+      if (aborted) return;
+      if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+
+      xhr.onload = () => {
+        if (xhr.status < 200 || xhr.status >= 300) {
+          const msg = xhr.status === 401
+            ? 'Session expired — please sign in again.'
+            : (xhr.responseText || `Assistant request failed (${xhr.status})`).slice(0, 200);
+          handlers.onError(msg);
+          return;
+        }
+        const intent = xhr.getResponseHeader('X-Assist-Intent');
+        const text = xhr.responseText.trim();
+        if (intent === 'action') {
+          // Empty body = the pre-reply Haiku classification caught it before
+          // any text streamed; a non-empty body = the reply model's own
+          // <<BUILD>> handoff, a restatement that makes a far better build
+          // prompt than the user's bare original message.
+          handlers.onDone({ intent: 'action', handoffPrompt: text || params.prompt });
+        } else {
+          handlers.onDone({ intent: 'chat', text: text || 'Could you rephrase that?' });
+        }
+      };
+      xhr.onerror = () => handlers.onError('Network error reaching the assistant');
+      xhr.ontimeout = () => handlers.onError('Assistant request timed out — check your connection and try again.');
+
+      xhr.send(
+        JSON.stringify({
+          prompt: params.prompt,
+          fileContext: params.fileContext,
+          history: params.history,
+          hasFiles: params.hasFiles,
+          forceChat: params.forceChat,
+          projectId: params.projectId,
+        }),
+      );
+    })
+    .catch((err: unknown) => {
+      if (aborted) return;
+      handlers.onError(err instanceof Error ? err.message : 'Could not reach the assistant.');
+    });
+
+  return {
+    abort: () => {
+      aborted = true;
+      try { xhr.abort(); } catch { /* already done */ }
+    },
+  };
+}
+
+export type PlanManifestResult = { files: PlannedFile[]; buildComplexity?: 'HIGH' | 'LOW' };
+
+/**
+ * Atlas's plan pass — a free, non-streaming JSON file manifest for a first
+ * build, used to decide whether to stage it (see lib/staged-plan.ts
+ * buildStagedPlan). Mirrors the web app's ChatPanel fetchPlanManifest.
+ * [] on any failure — the caller falls back to the classic one-shot build.
+ */
+export async function fetchPlanManifest(
+  prompt: string,
+  projectType: ProjectType,
+  userId: string,
+  projectId: string,
+): Promise<PlanManifestResult> {
+  try {
+    const token = await accessToken();
+    const res = await withTimeout(
+      fetch(`${API_BASE}/api/generate`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ prompt, stage: 'plan', projectType, userId, projectId, isFirstBuild: true }),
+      }),
+      30_000,
+      'Planning the build',
+    );
+    if (!res.ok) return { files: [] };
+    const header = res.headers.get('X-Build-Complexity');
+    const buildComplexity = header === 'HIGH' || header === 'LOW' ? header : undefined;
+    const text = await res.text();
+    return { files: parsePlanManifest(text), buildComplexity };
+  } catch {
+    return { files: [] };
+  }
 }
 
 /**

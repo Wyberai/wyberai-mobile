@@ -32,15 +32,24 @@ const STATE_COLOR: Record<AgentLane['state'], string> = {
   blocked: brand.danger,
 };
 
+// Canonical read order, independent of the order each agent's first event
+// happened to arrive in — the server now dispatches agents concurrently, so
+// event arrival order no longer matches the intended planner→coder→design→
+// security→qa→orchestrator narrative.
+const AGENT_ORDER: AgentLane['agent'][] = ['planner', 'coder', 'design', 'security', 'qa', 'orchestrator'];
+
 export function AgentFeed({ lanes }: { lanes: AgentLane[] }) {
   if (lanes.length === 0) return null;
+  const ordered = [...lanes].sort(
+    (a, b) => AGENT_ORDER.indexOf(a.agent) - AGENT_ORDER.indexOf(b.agent),
+  );
 
   return (
     <View style={styles.wrap}>
-      {lanes.map((lane, i) => {
+      {ordered.map((lane, i) => {
         const meta = agentMeta(lane.agent);
         return (
-          <FadeInUp key={lane.agent} distance={10} duration={250} delay={i * 40}>
+          <FadeInUp key={lane.agent} distance={10} duration={250} delay={i * 40} style={styles.laneWrap}>
             <View style={styles.lane}>
               <View style={[styles.avatar, { backgroundColor: `${meta.color}22`, borderColor: `${meta.color}55` }]}>
                 <Ionicons name={STATE_ICON[lane.state]} size={13} color={STATE_COLOR[lane.state]} />
@@ -78,11 +87,17 @@ export function AgentFeed({ lanes }: { lanes: AgentLane[] }) {
 }
 
 const styles = StyleSheet.create({
-  wrap: { gap: space.sm, marginBottom: space.sm },
+  // width/alignSelf pinned explicitly — each lane is wrapped in its own
+  // FadeInUp (an Animated.View driven only by opacity/transform), which must
+  // never be allowed to collapse to intrinsic content width while its
+  // entrance animation is still settling.
+  wrap: { gap: space.sm, marginBottom: space.sm, width: '100%' },
+  laneWrap: { width: '100%' },
   lane: {
     flexDirection: 'row', gap: space.sm,
     backgroundColor: brand.surfaceAlt, borderRadius: radius.md,
     borderWidth: 1, borderColor: brand.border, padding: space.sm + 2,
+    width: '100%', alignSelf: 'stretch',
   },
   avatar: {
     width: 24, height: 24, borderRadius: radius.pill, borderWidth: 1,

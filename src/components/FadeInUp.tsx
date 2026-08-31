@@ -40,7 +40,31 @@ export function FadeInUp({
       progress.value = 1;
       return;
     }
-    progress.value = withDelay(delay, withTiming(1, { duration, easing: WEB_EASE }));
+    // Firing withTiming synchronously in this effect can silently no-op if the
+    // Reanimated UI-runtime binding isn't attached yet on the very first frame
+    // after a cold mount (Home's hero, the first AgentFeed lanes) — content
+    // then sits stuck at opacity:0 forever, present and touchable but invisible.
+    // Deferring past two frames gives the UI runtime a chance to attach before
+    // the animation is requested.
+    let cancelled = false;
+    let raf2 = 0;
+    const raf1 = requestAnimationFrame(() => {
+      raf2 = requestAnimationFrame(() => {
+        if (!cancelled) progress.value = withDelay(delay, withTiming(1, { duration, easing: WEB_EASE }));
+      });
+    });
+    // Belt-and-suspenders: if the animation above still never lands (backgrounded
+    // mid-entrance, a stalled worklet runtime), force full visibility rather than
+    // leave content permanently hidden.
+    const safety = setTimeout(() => {
+      if (!cancelled) progress.value = 1;
+    }, delay + duration + 500);
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(raf1);
+      cancelAnimationFrame(raf2);
+      clearTimeout(safety);
+    };
   }, [delay, duration, progress, reducedMotion]);
 
   const animatedStyle = useAnimatedStyle(() => ({

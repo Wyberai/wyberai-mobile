@@ -6,7 +6,7 @@ import * as Linking from 'expo-linking';
 import * as AppleAuthentication from 'expo-apple-authentication';
 import { supabase } from '@/lib/supabase';
 import { registerForPushNotifications } from '@/lib/push';
-import { triggerOnboarding, fetchCredits } from '@/lib/api';
+import { triggerOnboarding, fetchAccount } from '@/lib/api';
 import { getBiometricPreference, setBiometricPreference, canUseBiometrics } from '@/lib/biometric';
 import { clearPendingDeepLinkPath } from '../app/+native-intent';
 
@@ -18,7 +18,10 @@ type SessionContextValue = {
   isLoading: boolean;
   /** Current credit balance — single source of truth, refreshed on foreground. */
   credits: number | null;
-  /** Refetch the credit balance (call after a build, or returning from top-up). */
+  /** Current plan id (profiles.plan — same column the Dodo webhook writes on
+   * web). Gates the model-tier picker; 'free' until the first fetch resolves. */
+  plan: string;
+  /** Refetch the credit balance + plan (call after a build, or returning from top-up). */
   refreshCredits: () => void;
   /** Sign in with Google or GitHub (opens a browser session, returns to the app). */
   signInWithProvider: (provider: OAuthProvider) => Promise<{ error: string | null }>;
@@ -49,10 +52,11 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [credits, setCredits] = useState<number | null>(null);
+  const [plan, setPlan] = useState('free');
   const registeredFor = useRef<string | null>(null);
 
   const refreshCredits = useCallback(() => {
-    fetchCredits().then(setCredits).catch(() => {});
+    fetchAccount().then(({ credits: c, plan: p }) => { setCredits(c); setPlan(p); }).catch(() => {});
   }, []);
 
   // First sign-in only (getBiometricPreference() returns null until the user
@@ -160,6 +164,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       // flags it generically, but there's no derivation that avoids the effect here.
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setCredits(null);
+      setPlan('free');
     }
   }, [session?.user?.id, refreshCredits, offerBiometricOptIn]);
 
@@ -248,6 +253,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
         user: session?.user ?? null,
         isLoading,
         credits,
+        plan,
         refreshCredits,
         signInWithProvider,
         signInWithApple,

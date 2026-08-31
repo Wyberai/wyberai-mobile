@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState, type MutableRefObject } from 'react';
 import { Modal, Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import Animated, {
   Easing,
@@ -29,6 +29,22 @@ export type RevealState =
 
 export type RuntimeErrorInfo = { message: string; source?: string; line?: number; stack?: string };
 
+// Reported by the injected mobile selection bridge (see
+// lib/wyber-preview-mobile-bridge.ts) when the user taps an element while
+// select mode is on.
+export type SelectedElementInfo = {
+  selector: string;
+  tag: string;
+  text: string;
+  classes: string;
+  loc: string | null;
+};
+
+/** Imperative handle for sending messages down to the bridge (optimistic
+ * live class/text updates while the user is still adjusting — the real
+ * source patch + rebuild happens separately). */
+export type PreviewBridgeHandle = { postMessage: (json: string) => void };
+
 const WEB_EASE = Easing.bezier(...motion.ease);
 
 // Bridges uncaught JS errors inside the previewed app back to the native
@@ -55,11 +71,29 @@ export function PreviewRevealSheet({
   onClose,
   onOpenFull,
   onRuntimeError,
+  onLoadError,
+  selectMode = false,
+  onToggleSelectMode,
+  onElementSelected,
+  bridgeRef,
 }: {
   state: RevealState;
   onClose: () => void;
   onOpenFull: () => void;
   onRuntimeError?: (info: RuntimeErrorInfo) => void;
+  /** The WebView itself failed to load (network blip, bad URL) — as opposed to
+   * a runtime error inside a successfully-loaded page. Distinct from a silent
+   * blank screen: without this, a failed load just renders nothing forever. */
+  onLoadError?: () => void;
+  /** Visual Edits — tap-to-select mode (see lib/wyber-preview-mobile-bridge.ts).
+   * Only meaningful when the loaded HTML was built with the bridge injected
+   * (build/[id].tsx's autoPreview, web/website/saas projects only). */
+  selectMode?: boolean;
+  onToggleSelectMode?: () => void;
+  onElementSelected?: (info: SelectedElementInfo) => void;
+  /** Parent-owned ref this component fills in with a postMessage function,
+   * for sending optimistic wyber-set-class/wyber-set-text updates. */
+  bridgeRef?: MutableRefObject<PreviewBridgeHandle | null>;
 }) {
   const insets = useSafeAreaInsets();
   const { height } = useWindowDimensions();
@@ -67,6 +101,21 @@ export function PreviewRevealSheet({
   const [rendered, setRendered] = useState(visible);
   const progress = useSharedValue(0);
   const sheetHeight = Math.round(height * 0.78);
+  const webViewRef = useRef<WebView>(null);
+
+  useEffect(() => {
+    if (!bridgeRef) return;
+    bridgeRef.current = { postMessage: (json: string) => webViewRef.current?.postMessage(json) };
+    return () => { bridgeRef.current = null; };
+  }, [bridgeRef]);
+
+  // Re-send the current select-mode state whenever it changes AND whenever
+  // the page (re)loads — a fresh load resets the injected script's JS state,
+  // so a stale "on" from before a rebuild would otherwise be lost silently.
+  useEffect(() => {
+    if (state.phase !== 'ready' && state.phase !== 'ready-html') return;
+    webViewRef.current?.postMessage(JSON.stringify({ type: 'wyber-edit-mode', on: selectMode }));
+  }, [selectMode, state.phase]);
 
   useEffect(() => {
     if (visible) {
@@ -108,6 +157,18 @@ export function PreviewRevealSheet({
                   {state.phase === 'building' ? 'Bringing it to life…' : state.phase === 'error' ? 'Preview' : '✦ Your app, live'}
                 </Text>
               </View>
+              {(state.phase === 'ready' || state.phase === 'ready-html') && onToggleSelectMode ? (
+                <Pressable
+                  onPress={() => { tap(); onToggleSelectMode(); }}
+                  hitSlop={8}
+                  style={[styles.expandBtn, selectMode && styles.expandBtnActive]}
+                >
+                  <Ionicons name="locate-outline" size={14} color={selectMode ? brand.onAccent : brand.accent} />
+                  <Text style={[styles.expandText, selectMode && styles.expandTextActive]}>
+                    {selectMode ? 'Tap an element' : 'Edit'}
+                  </Text>
+                </Pressable>
+              ) : null}
               {state.phase === 'ready' || state.phase === 'ready-html' ? (
                 <Pressable
                   onPress={() => { tap(); onOpenFull(); }}
@@ -143,6 +204,7 @@ export function PreviewRevealSheet({
           ) : state.phase === 'ready' || state.phase === 'ready-html' ? (
             <View style={styles.webWrap}>
               <WebView
+                ref={webViewRef}
                 source={state.phase === 'ready-html' ? { html: state.html } : { uri: state.url }}
                 style={styles.web}
                 startInLoadingState
@@ -159,11 +221,14 @@ export function PreviewRevealSheet({
                   try {
                     const data = JSON.parse(e.nativeEvent.data);
                     if (data?.type === 'rn_error') onRuntimeError?.(data);
+                    else if (data?.type === 'wyber-element-selected') onElementSelected?.(data);
                   } catch {
                     // In-app render failures show their own fallback card inside
                     // the WebView — a non-JSON message is nothing to act on.
                   }
                 }}
+                onError={() => onLoadError?.()}
+                onHttpError={() => onLoadError?.()}
               />
             </View>
           ) : null}
@@ -215,6 +280,8 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(14,165,233,0.12)',
   },
   expandText: { color: brand.accent, fontSize: 12, fontWeight: '700' },
+  expandBtnActive: { backgroundColor: brand.accent },
+  expandTextActive: { color: brand.onAccent },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: space.xl, gap: space.md },
   muted: { color: brand.textMuted, fontSize: 14 },
   errorTitle: { color: brand.text, fontSize: 16, fontWeight: '700' },
