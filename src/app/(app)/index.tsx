@@ -22,7 +22,7 @@ import { PROJECTS_STRINGS } from '@/lib/i18n/dict/projects';
 import { brand, radius, space } from '@/lib/theme';
 
 const SELECT =
-  'id,user_id,name,description,framework,project_type,subdomain,published_url,deployed_url,custom_domain,thumbnail_url,created_at,updated_at';
+  'id,user_id,name,description,framework,project_type,subdomain,published_url,deployed_url,custom_domain,custom_domain_verified,thumbnail_url,created_at,updated_at';
 
 const FILTER_KEY = 'wyber:projects-filter';
 const TYPE_LABEL: Record<string, string> = { web: 'Web', mobile: 'Mobile', website: 'Website', saas: 'SaaS' };

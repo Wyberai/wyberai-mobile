@@ -1,27 +1,38 @@
-import { useEffect, useState } from 'react';
-import { ActivityIndicator, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
-import { Stack } from 'expo-router';
-import { WebView } from 'react-native-webview';
+import { useCallback, useState } from 'react';
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Stack, useFocusEffect, useRouter, type Href } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useSession } from '@/ctx/session';
 import { supabase } from '@/lib/supabase';
 import { brand, font, radius, space } from '@/lib/theme';
 
-// Native TOTP enrollment (QR + confirm code) is a meaningfully-sized native
-// flow on its own — this screen surfaces status and hands the actual
-// enable/disable to the web settings page in a modal, matching how GitHub
-// connection (also OAuth, also web-only today) is handled.
+// Native TOTP enrollment now lives at /mfa-setup (QR via react-native-qrcode-svg
+// + supabase.auth.mfa.* directly, same as web's TwoFactorPanel) — this screen
+// just surfaces status and links to it, matching the LinkRow-to-detail-screen
+// pattern used everywhere else in the app.
+//
+// Status reads profiles.mfa_enabled, NOT supabase.auth.mfa.listFactors() — the
+// login-time 2FA gate (src/proxy.ts on web) is keyed strictly on that column,
+// which is only set once recovery codes are generated after enrollment. A
+// verified TOTP factor can exist with that column still false (enrollment
+// interrupted before recovery codes finished) — reading listFactors() here
+// would show "Enabled" for an account that isn't actually gated at login.
 export default function SecuritySettingsScreen() {
+  const router = useRouter();
   const { user } = useSession();
   const [mfaEnabled, setMfaEnabled] = useState<boolean | null>(null);
-  const [webviewOpen, setWebviewOpen] = useState(false);
 
-  useEffect(() => {
+  const load = useCallback(() => {
     if (!user) return;
-    supabase.from('profiles').select('mfa_enabled').eq('id', user.id).maybeSingle().then(({ data }) => {
-      setMfaEnabled(!!(data as { mfa_enabled?: boolean } | null)?.mfa_enabled);
-    });
+    // Supabase's query builder is only a PromiseLike (thenable), not a real
+    // Promise — its own .then() return type doesn't guarantee .catch(),
+    // so wrap it in Promise.resolve() first to chain one safely.
+    Promise.resolve(supabase.from('profiles').select('mfa_enabled').eq('id', user.id).maybeSingle())
+      .then(({ data }) => setMfaEnabled(!!data?.mfa_enabled))
+      .catch(() => setMfaEnabled(null));
   }, [user]);
+
+  useFocusEffect(load);
 
   return (
     <View style={styles.container}>
@@ -46,28 +57,15 @@ export default function SecuritySettingsScreen() {
         </View>
       </View>
 
-      <Pressable style={styles.actionBtn} onPress={() => setWebviewOpen(true)}>
+      <Pressable style={styles.actionBtn} onPress={() => router.push('/mfa-setup' as Href)}>
         <Text style={styles.actionText}>{mfaEnabled ? 'Manage 2FA' : 'Set up 2FA'}</Text>
       </Pressable>
-
-      <Modal visible={webviewOpen} animationType="slide" onRequestClose={() => setWebviewOpen(false)} presentationStyle="pageSheet">
-        <View style={styles.flex}>
-          <View style={styles.modalHeader}>
-            <Text style={styles.modalTitle}>Security settings</Text>
-            <Pressable onPress={() => setWebviewOpen(false)} hitSlop={8}>
-              <Ionicons name="close" size={22} color={brand.textMuted} />
-            </Pressable>
-          </View>
-          <WebView source={{ uri: 'https://wyberai.com/settings?tab=security' }} style={styles.flex} />
-        </View>
-      </Modal>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: brand.bg, padding: space.lg, gap: space.lg },
-  flex: { flex: 1, backgroundColor: brand.bg },
   card: {
     backgroundColor: brand.surface,
     borderWidth: 1,
@@ -86,13 +84,4 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   actionText: { color: brand.onAccent, fontSize: 15, fontWeight: '700' },
-  modalHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    padding: space.lg,
-    borderBottomWidth: 1,
-    borderBottomColor: brand.border,
-  },
-  modalTitle: { color: brand.text, fontSize: 17, fontFamily: font.display },
 });

@@ -16,7 +16,7 @@ export default function GithubSettingsScreen() {
 
   useEffect(() => {
     if (!user) return;
-    getGithubAccountStatus().then(setConnected);
+    getGithubAccountStatus().then(setConnected).catch(() => setConnected(false));
   }, [user]);
 
   return (

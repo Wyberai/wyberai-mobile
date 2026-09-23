@@ -186,6 +186,7 @@ export default function BuildScreen() {
   // (HIPAA, PCI-DSS, etc.) so the user isn't surprised later.
   const [pendingRegulated, setPendingRegulated] = useState<{ prompt: string; domains: RegulatedDomain[] } | null>(null);
   const [loaded, setLoaded] = useState(false);
+  const [loadError, setLoadError] = useState(false);
   // Plan Mode: on a first build, offer a plan before generating code.
   const [planState, setPlanState] = useState<'none' | 'offer' | 'planning' | 'ready'>('none');
   const [plan, setPlan] = useState<Plan | null>(null);
@@ -221,26 +222,38 @@ export default function BuildScreen() {
   }, []);
 
   const takePhoto = useCallback(async () => {
-    const perm = await ImagePicker.requestCameraPermissionsAsync();
-    if (!perm.granted) return;
-    const result = await ImagePicker.launchCameraAsync({ base64: false, quality: 1, allowsEditing: false });
-    const asset = result.assets?.[0];
-    if (result.canceled || !asset?.uri) return;
-    await processPickedAsset(asset);
+    try {
+      const perm = await ImagePicker.requestCameraPermissionsAsync();
+      if (!perm.granted) return;
+      const result = await ImagePicker.launchCameraAsync({ base64: false, quality: 1, allowsEditing: false });
+      const asset = result.assets?.[0];
+      if (result.canceled || !asset?.uri) return;
+      await processPickedAsset(asset);
+    } catch (e) {
+      // launchCameraAsync is documented to throw (not resolve) when the
+      // camera hardware is busy or unavailable — an unguarded native call
+      // otherwise fails as a silent unhandled rejection with no user-facing
+      // message, one of the most common real-world RN crash categories.
+      Alert.alert('Could not open camera', (e as Error).message || 'Try again in a moment.');
+    }
   }, [processPickedAsset]);
 
   const pickFromLibrary = useCallback(async () => {
-    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!perm.granted) return;
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ['images'],
-      base64: false,
-      quality: 1,
-      allowsEditing: false,
-    });
-    const asset = result.assets?.[0];
-    if (result.canceled || !asset?.uri) return;
-    await processPickedAsset(asset);
+    try {
+      const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!perm.granted) return;
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        base64: false,
+        quality: 1,
+        allowsEditing: false,
+      });
+      const asset = result.assets?.[0];
+      if (result.canceled || !asset?.uri) return;
+      await processPickedAsset(asset);
+    } catch (e) {
+      Alert.alert('Could not open photo library', (e as Error).message || 'Try again in a moment.');
+    }
   }, [processPickedAsset]);
 
   // The camera icon implied live capture, but only ever opened the photo
@@ -341,11 +354,28 @@ export default function BuildScreen() {
       // a banner about an error from the PREVIOUS render must not linger and
       // imply the new one is still broken.
       setAutoFixError(null);
-      setReveal({ phase: 'building' });
+      // A REBUILD must never blank an already-working preview behind a
+      // spinner, or force open a sheet the user closed — this used to
+      // unconditionally setReveal({phase:'building'}) on every single call,
+      // reproducing the exact regression web's PreviewPanel.tsx explicitly
+      // guards against (its own comment: a real user "saw FOUR simultaneous
+      // building indicators and rightly called it out"). 'building' (the
+      // only full-screen takeover, and the only phase that shows the
+      // build-time filler game) is now reserved for when there's truly
+      // nothing to preserve yet.
+      setReveal((prev) => {
+        if (prev.phase === 'ready' || prev.phase === 'ready-html') return { ...prev, refreshing: true };
+        if (prev.phase === 'hidden' && lastGoodRevealRef.current) return prev; // stay closed, update silently below
+        return { phase: 'building' };
+      });
       try {
         if (type === 'mobile') {
           const html = await buildMobilePreviewHtml(id, nextFiles);
-          if (!goneRef.current) setReveal({ phase: 'ready-html', html });
+          if (!goneRef.current) {
+            const next: RevealState = { phase: 'ready-html', html };
+            lastGoodRevealRef.current = next; // set directly — the reveal-watcher effect won't fire if `reveal` itself stays 'hidden'
+            setReveal((prev) => (prev.phase === 'hidden' ? prev : next));
+          }
         } else {
           // Visual Edits (tap-to-select 0-credit editing) needs the preview's
           // DOM tagged with source locations and carrying the selection
@@ -354,35 +384,61 @@ export default function BuildScreen() {
           // (data-wyber-loc only tags lowercase HTML tags).
           const previewFiles = injectMobileBridge(injectWyberLoc(nextFiles));
           const url = await buildPreview(id, previewFiles);
-          if (!goneRef.current) setReveal({ phase: 'ready', url });
+          if (!goneRef.current) {
+            const next: RevealState = { phase: 'ready', url };
+            lastGoodRevealRef.current = next;
+            setReveal((prev) => (prev.phase === 'hidden' ? prev : next));
+          }
         }
         if (!goneRef.current) thunk();
       } catch {
-        if (!goneRef.current) setReveal({ phase: 'error' });
+        // Same principle on failure: a hidden sheet stays hidden (the last
+        // good content, if any, is untouched and still what reopening would
+        // show) rather than popping open to an error card the user never
+        // asked to see mid-edit.
+        if (!goneRef.current) setReveal((prev) => (prev.phase === 'hidden' ? prev : { phase: 'error' }));
       }
     },
     [id, type, name],
   );
 
-  useEffect(() => {
+  const loadProject = useCallback(() => {
     if (!id) return;
+    setLoadError(false);
     // Project meta/files and chat history load in parallel; the screen unlocks
     // when the project arrives (history fills in whenever it lands — usually
     // together, and an empty/failed history read must never block building).
-    supabase
-      .from('projects')
-      .select('id,name,project_type,files')
-      .eq('id', id)
-      .maybeSingle()
-      .then(({ data }) => {
+    // Supabase's query builder is only a PromiseLike (thenable), not a real
+    // Promise — its .then() return type doesn't guarantee .catch(), so wrap
+    // it in Promise.resolve() first to chain one safely.
+    Promise.resolve(
+      supabase.from('projects').select('id,name,project_type,files').eq('id', id).maybeSingle(),
+    )
+      .then(({ data, error }) => {
         if (goneRef.current) return;
+        if (error) {
+          // This is the single most-used screen in the app — a missing
+          // .catch() here left it stuck on the loading spinner forever on
+          // any network blip, with no way back short of leaving and
+          // re-entering. Surface a real retry instead.
+          setLoadError(true);
+          return;
+        }
         if (data) {
           setName(data.name ?? '');
           setType((data.project_type as ProjectType) ?? 'web');
           setFiles((data.files as FileMap) ?? {});
         }
         setLoaded(true);
+      })
+      .catch(() => {
+        if (!goneRef.current) setLoadError(true);
       });
+  }, [id]);
+
+  useEffect(() => {
+    loadProject();
+    if (!id) return;
     loadMessages(id).then((stored) => {
       if (goneRef.current || stored.length === 0) return;
       setMessages((current) => {
@@ -1510,7 +1566,14 @@ export default function BuildScreen() {
         }}
       />
 
-      {!loaded ? (
+      {loadError ? (
+        <View style={styles.center}>
+          <Text style={styles.emptyBody}>Couldn't load this project.</Text>
+          <Pressable onPress={loadProject} hitSlop={8} style={{ marginTop: 12 }}>
+            <Text style={[styles.emptyBody, { color: brand.accent }]}>Retry</Text>
+          </Pressable>
+        </View>
+      ) : !loaded ? (
         <View style={styles.center}>
           <ActivityIndicator color={brand.accent} />
         </View>

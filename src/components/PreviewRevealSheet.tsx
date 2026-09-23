@@ -13,18 +13,27 @@ import { Ionicons } from '@expo/vector-icons';
 import { Spinner } from '@/components/Spinner';
 import { brand, font, motion, radius, space } from '@/lib/theme';
 import { tap } from '@/lib/haptics';
+import { WYBER_GAME_SRC } from '@/lib/build-game';
 
 // The reveal moment after a build: the freshly built app slides up INSIDE the
 // chat screen — no navigation, no context switch. Same WebView contract as
 // preview/[id].tsx. A failed preview build shows a calm card that hands off to
 // the full preview screen; it can never touch chat state (caller mounts this
 // inside a SafeWidget and only ever passes it display state).
-
+//
+// `refreshing` on the ready states matters: a REBUILD (not the first one)
+// must never blank an already-working preview behind a spinner, or reopen a
+// sheet the user closed — web's PreviewPanel.tsx explicitly guards against
+// this exact regression (its own comment: a real user "saw FOUR simultaneous
+// building indicators and rightly called it out"). `building` with no prior
+// content is the only case shown full-screen, which is also why it's the
+// only phase that renders the build-time filler game instead of a bare
+// spinner — same condition web uses to show it (no existing preview yet).
 export type RevealState =
   | { phase: 'hidden' }
   | { phase: 'building' }
-  | { phase: 'ready'; url: string }
-  | { phase: 'ready-html'; html: string }
+  | { phase: 'ready'; url: string; refreshing?: boolean }
+  | { phase: 'ready-html'; html: string; refreshing?: boolean }
   | { phase: 'error' };
 
 export type RuntimeErrorInfo = { message: string; source?: string; line?: number; stack?: string };
@@ -186,9 +195,13 @@ export function PreviewRevealSheet({
           </View>
 
           {state.phase === 'building' ? (
-            <View style={styles.center}>
-              <Spinner />
-              <Text style={styles.muted}>Rendering your app…</Text>
+            <View style={styles.gameWrap}>
+              <WebView
+                source={{ html: WYBER_GAME_SRC }}
+                style={styles.web}
+                originWhitelist={['*']}
+                javaScriptEnabled
+              />
             </View>
           ) : state.phase === 'error' ? (
             <View style={styles.center}>
@@ -203,6 +216,12 @@ export function PreviewRevealSheet({
             </View>
           ) : state.phase === 'ready' || state.phase === 'ready-html' ? (
             <View style={styles.webWrap}>
+              {state.refreshing ? (
+                <View style={styles.refreshingPill} pointerEvents="none">
+                  <Spinner size={14} />
+                  <Text style={styles.refreshingText}>Updating preview…</Text>
+                </View>
+              ) : null}
               <WebView
                 ref={webViewRef}
                 source={state.phase === 'ready-html' ? { html: state.html } : { uri: state.url }}
@@ -297,4 +316,21 @@ const styles = StyleSheet.create({
   webWrap: { flex: 1, backgroundColor: brand.bg },
   web: { flex: 1, backgroundColor: brand.bg },
   webLoading: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: brand.bg },
+  gameWrap: { flex: 1, backgroundColor: '#09090b' },
+  refreshingPill: {
+    position: 'absolute',
+    bottom: 14,
+    alignSelf: 'center',
+    zIndex: 6,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: 'rgba(17,17,24,0.92)',
+    borderWidth: 1,
+    borderColor: brand.border,
+    borderRadius: radius.pill,
+    paddingHorizontal: space.md,
+    paddingVertical: 6,
+  },
+  refreshingText: { color: brand.text, fontSize: 11.5, fontWeight: '600' },
 });

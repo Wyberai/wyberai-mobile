@@ -39,10 +39,20 @@ export default function ImportScreen() {
 
   async function onPickZip() {
     if (busy) return;
-    const result = await DocumentPicker.getDocumentAsync({
-      type: ['application/zip', 'application/x-zip-compressed'],
-      copyToCacheDirectory: true,
-    });
+    let result;
+    try {
+      // getDocumentAsync is a native call and can throw on a storage-
+      // permission denial or provider crash on some Android versions — it
+      // used to sit outside any try/catch, failing as a silent unhandled
+      // rejection with no user-facing message.
+      result = await DocumentPicker.getDocumentAsync({
+        type: ['application/zip', 'application/x-zip-compressed'],
+        copyToCacheDirectory: true,
+      });
+    } catch (e) {
+      Alert.alert('Could not open file picker', (e as Error).message || 'Try again in a moment.');
+      return;
+    }
     if (result.canceled || !result.assets?.[0]) return;
     const asset = result.assets[0];
     setBusy('zip');

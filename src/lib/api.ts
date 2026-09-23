@@ -1446,6 +1446,319 @@ export async function fetchCommunityTemplates(category?: string): Promise<Commun
   }
 }
 
+// ── Full templates gallery (prebuilt_apps — the same catalog web's
+// /templates → /gallery browses, not the small fetchCommunityTemplates strip
+// above) ─────────────────────────────────────────────────────────────────
+export type PrebuiltApp = {
+  app_id: string;
+  name: string;
+  category: string | null;
+  description: string | null;
+  keywords: string[] | null;
+  preview_color: string | null;
+  use_count: number;
+};
+
+/** Mirrors web's gallery-client.tsx query exactly (same table, same filter/sort). */
+export async function fetchPrebuiltApps(): Promise<PrebuiltApp[]> {
+  try {
+    const { data, error } = await withTimeout(
+      supabase
+        .from('prebuilt_apps')
+        .select('app_id, name, category, description, keywords, preview_color, use_count')
+        .eq('valid', true)
+        .order('use_count', { ascending: false }),
+      15_000,
+      'Loading templates',
+    );
+    if (error || !data) return [];
+    // app_id is a "stable human slug (optional)" per its own schema comment —
+    // a row without one can never be opened via createProjectFromTemplate
+    // (which looks up by app_id), so filter it out here rather than surface
+    // a template card that 404s when tapped.
+    return (data as PrebuiltApp[]).filter((a) => !!a.app_id);
+  } catch {
+    return [];
+  }
+}
+
+// ── Marketplace (buy-only on mobile — selling stays a web-only flow) ───────
+export type MarketplaceListing = {
+  id: string;
+  seller_id: string | null;
+  source: 'user' | 'studio';
+  title: string;
+  description: string;
+  category: string;
+  price_usd: number;
+  thumbnail_url: string | null;
+  preview_color: string | null;
+  sales_count: number;
+  created_at: string;
+};
+
+/** RLS ("Anyone can view approved listings") makes this readable without a
+ *  custom endpoint — same direct-Supabase pattern as fetchPrebuiltApps(). */
+export async function fetchMarketplaceListings(): Promise<MarketplaceListing[]> {
+  try {
+    const { data, error } = await withTimeout(
+      supabase
+        .from('marketplace_listings')
+        .select('id, seller_id, source, title, description, category, price_usd, thumbnail_url, preview_color, sales_count, created_at')
+        .eq('status', 'approved')
+        .order('sales_count', { ascending: false }),
+      15_000,
+      'Loading marketplace',
+    );
+    if (error || !data) return [];
+    return data as MarketplaceListing[];
+  } catch {
+    return [];
+  }
+}
+
+/** Starts a Dodo "pay what you want" checkout for one listing. Returns a
+ *  hosted checkout URL to open in a browser — there's no in-app payment UI,
+ *  same as web. Poll fetchMarketplacePurchaseStatus(purchaseId) afterward;
+ *  fulfillment happens async via the Dodo webhook, not synchronously here. */
+export async function purchaseMarketplaceListing(listingId: string): Promise<{ url: string; purchaseId: string }> {
+  const token = await accessToken();
+  const res = await fetch(`${API_BASE}/api/marketplace/checkout`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify({ listingId }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data.url || !data.purchaseId) throw new Error(data.error || `Could not start checkout (${res.status})`);
+  return { url: data.url, purchaseId: data.purchaseId };
+}
+
+export async function fetchMarketplacePurchaseStatus(
+  purchaseId: string,
+): Promise<{ status: string; deliveredProjectId: string | null; listingTitle: string | null }> {
+  const token = await accessToken();
+  const res = await fetch(`${API_BASE}/api/marketplace/purchase/${purchaseId}`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || `Could not check purchase status (${res.status})`);
+  return data;
+}
+
+/**
+ * Instant-load a template's real files into a brand-new project (mirrors
+ * web's TemplatesShowcase.tsx → /api/projects/from-template). Distinct from
+ * createProject(), which starts an EMPTY project for a fresh AI generation —
+ * this one skips generation entirely since the template already has files.
+ */
+export async function createProjectFromTemplate(templateId: string): Promise<string> {
+  const token = await accessToken();
+  const res = await fetch(`${API_BASE}/api/projects/from-template`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify({ templateId }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data.projectId) throw new Error(data.error || `Could not start from template (${res.status})`);
+  return data.projectId as string;
+}
+
+// ── Custom domains (connect/verify an owned domain, or search+buy a new one) ─
+export type DomainInstructions = {
+  type: string;
+  name: string;
+  value: string;
+  ttl?: string;
+  message?: string;
+};
+
+export type ConnectDomainResult = {
+  verified: boolean;
+  domain?: string;
+  error?: string;
+  message?: string;
+  instructions?: Record<string, unknown> & { record?: DomainInstructions };
+  provider?: { name: string; dashboardUrl: string } | null;
+};
+
+async function domainAuthHeaders(): Promise<Record<string, string>> {
+  const token = await accessToken();
+  return { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) };
+}
+
+/** action omitted = save + return DNS instructions; action: 'verify' = check DNS and finalize. */
+export async function connectCustomDomain(
+  projectId: string,
+  domain: string,
+  action?: 'verify',
+): Promise<ConnectDomainResult> {
+  const res = await fetch(`${API_BASE}/api/custom-domain`, {
+    method: 'POST',
+    headers: await domainAuthHeaders(),
+    body: JSON.stringify({ projectId, domain, action }),
+  });
+  const data = await res.json().catch(() => ({}));
+  // A 402 (plan-gated) still carries a real `error` message meant to be shown,
+  // not thrown as a generic HTTP failure — only throw on a truly unexpected
+  // shape (no error and no verified field).
+  if (!res.ok && data.error === undefined && data.verified === undefined) {
+    throw new Error(`Could not connect domain (${res.status})`);
+  }
+  return data as ConnectDomainResult;
+}
+
+export async function removeCustomDomain(projectId: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/api/custom-domain`, {
+    method: 'DELETE',
+    headers: await domainAuthHeaders(),
+    body: JSON.stringify({ projectId }),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.error || `Could not remove domain (${res.status})`);
+  }
+}
+
+export async function searchDomain(name: string): Promise<{ name: string; available: boolean; priceCents: number | null; period: number }> {
+  const res = await fetch(`${API_BASE}/api/domain/search?name=${encodeURIComponent(name)}`, {
+    headers: await domainAuthHeaders(),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || `Domain search failed (${res.status})`);
+  return data;
+}
+
+export type DomainContactInfo = {
+  firstName: string; lastName: string; email: string; phone: string;
+  address1: string; city: string; state: string; zip: string; country: string;
+};
+
+export async function purchaseDomain(
+  opts: { projectId?: string; domain: string; priceCents: number; contactInfo: DomainContactInfo },
+): Promise<{ url: string; purchaseId: string }> {
+  const res = await fetch(`${API_BASE}/api/domain/purchase`, {
+    method: 'POST',
+    headers: await domainAuthHeaders(),
+    body: JSON.stringify(opts),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data.url) throw new Error(data.error || `Could not start domain checkout (${res.status})`);
+  return { url: data.url, purchaseId: data.purchaseId };
+}
+
+// ── Affiliate program (separate from the basic free-credit referral share in
+// fetchReferral()/referralLink() above — this is the approval-gated cash-
+// commission program) ───────────────────────────────────────────────────
+export type Affiliate = {
+  id: string;
+  status: 'pending' | 'approved' | 'rejected' | 'suspended';
+  payout_email: string | null;
+  payout_method: string | null;
+};
+
+export type AffiliateCommission = {
+  id: string;
+  dodo_event_type: string;
+  plan_key: string | null;
+  charge_usd: number;
+  commission_usd: number;
+  status: 'pending' | 'paid' | 'reversed';
+  created_at: string;
+};
+
+export type AffiliateStatus = {
+  affiliate: Affiliate | null;
+  commissions: AffiliateCommission[];
+  pendingUsd: number;
+  paidUsd: number;
+};
+
+/** Same tables/RLS the web /affiliate/dashboard page reads directly. */
+export async function fetchAffiliateStatus(): Promise<AffiliateStatus> {
+  const { data: userData } = await supabase.auth.getUser();
+  const userId = userData.user?.id;
+  if (!userId) return { affiliate: null, commissions: [], pendingUsd: 0, paidUsd: 0 };
+
+  const [affiliateRes, profileRes] = await Promise.all([
+    supabase.from('affiliates').select('id, status, payout_email, payout_method').eq('user_id', userId).maybeSingle(),
+    supabase.from('profiles').select('affiliate_pending_usd, affiliate_paid_usd').eq('id', userId).maybeSingle(),
+  ]);
+
+  const affiliate = (affiliateRes.data as Affiliate | null) ?? null;
+  let commissions: AffiliateCommission[] = [];
+  if (affiliate) {
+    const { data } = await supabase
+      .from('affiliate_commissions')
+      .select('id, dodo_event_type, plan_key, charge_usd, commission_usd, status, created_at')
+      .eq('affiliate_id', affiliate.id)
+      .order('created_at', { ascending: false })
+      .limit(50);
+    commissions = (data as AffiliateCommission[]) ?? [];
+  }
+
+  return {
+    affiliate,
+    commissions,
+    pendingUsd: Number(profileRes.data?.affiliate_pending_usd ?? 0),
+    paidUsd: Number(profileRes.data?.affiliate_paid_usd ?? 0),
+  };
+}
+
+export async function applyAffiliate(): Promise<Affiliate> {
+  const token = await accessToken();
+  const res = await fetch(`${API_BASE}/api/affiliate/apply`, {
+    method: 'POST',
+    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data.affiliate) throw new Error(data.error || `Could not apply (${res.status})`);
+  return data.affiliate;
+}
+
+export async function updatePayoutInfo(opts: { payoutEmail?: string; payoutMethod?: string }): Promise<Affiliate> {
+  const token = await accessToken();
+  const res = await fetch(`${API_BASE}/api/affiliate/payout-info`, {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify(opts),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data.affiliate) throw new Error(data.error || `Could not save payout info (${res.status})`);
+  return data.affiliate;
+}
+
+// ── MFA / 2FA ────────────────────────────────────────────────────────────
+// Enroll/verify/unenroll go straight through supabase.auth.mfa.* from the
+// screen (same SDK calls web's TwoFactorPanel makes) — only the two
+// WyberAi-specific bookkeeping endpoints need a wrapper here.
+export async function fetchMfaRecoveryCodes(): Promise<string[]> {
+  const token = await accessToken();
+  const res = await fetch(`${API_BASE}/api/mfa/recovery`, {
+    method: 'POST',
+    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data.codes) throw new Error(data.error || `Could not generate recovery codes (${res.status})`);
+  return data.codes as string[];
+}
+
+export async function disableMfaBookkeeping(): Promise<void> {
+  const token = await accessToken();
+  await fetch(`${API_BASE}/api/mfa/disable`, {
+    method: 'POST',
+    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+  }).catch(() => {});
+}
+
 function guessLang(path: string): string {
   if (path.endsWith('.tsx') || path.endsWith('.ts')) return 'typescript';
   if (path.endsWith('.jsx') || path.endsWith('.js')) return 'javascript';

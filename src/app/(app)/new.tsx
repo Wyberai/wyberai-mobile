@@ -118,6 +118,11 @@ export default function NewAppScreen() {
 
         <Text style={styles.hint}>{t('creditsHint')}</Text>
 
+        <Pressable style={styles.importLink} onPress={() => router.push('/templates' as Href)}>
+          <Ionicons name="grid-outline" size={15} color={brand.textMuted} />
+          <Text style={styles.importLinkText}>Or start from a template</Text>
+        </Pressable>
+
         <Pressable style={styles.importLink} onPress={() => router.push('/import' as Href)}>
           <Ionicons name="download-outline" size={15} color={brand.textMuted} />
           <Text style={styles.importLinkText}>Or import from GitHub / ZIP</Text>

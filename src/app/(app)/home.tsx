@@ -110,7 +110,7 @@ export default function HomeScreen() {
       if (!user?.id) return;
       supabase
         .from('projects')
-        .select('id,user_id,name,description,framework,subdomain,published_url,deployed_url,custom_domain,thumbnail_url,created_at,updated_at')
+        .select('id,user_id,name,description,framework,subdomain,published_url,deployed_url,custom_domain,custom_domain_verified,thumbnail_url,created_at,updated_at')
         .eq('user_id', user.id)
         .order('updated_at', { ascending: false })
         .limit(1)
@@ -270,9 +270,14 @@ export default function HomeScreen() {
       {/* Templates — real community-submitted starters, one tap loads the prompt box */}
       {templates.length > 0 ? (
         <FadeInUp delay={staggerDelay(3)} style={styles.gallerySection}>
-          <View style={styles.galleryHeader}>
-            <Text style={styles.galleryTitle}>Templates</Text>
-            <Text style={styles.gallerySub}>Start from something the community already built</Text>
+          <View style={styles.galleryHeaderRow}>
+            <View style={styles.galleryHeader}>
+              <Text style={styles.galleryTitle}>Templates</Text>
+              <Text style={styles.gallerySub}>Start from something the community already built</Text>
+            </View>
+            <Pressable onPress={() => router.push('/templates' as Href)} hitSlop={8}>
+              <Text style={styles.seeAll}>See all</Text>
+            </Pressable>
           </View>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.galleryRow}>
             {templates.slice(0, 10).map((tpl) => (

@@ -21,17 +21,26 @@ export default function NotificationsScreen() {
   const [refreshing, setRefreshing] = useState(false);
 
   const load = useCallback(async () => {
-    const { data } = await supabase
+    // `error` was previously dropped entirely — a failed fetch fell through
+    // to `data ?? []` and rendered the empty-state "You're all caught up!",
+    // actively hiding missed notifications behind a false all-clear instead
+    // of a real error.
+    const { data, error } = await supabase
       .from('notifications')
       .select('*')
       .order('created_at', { ascending: false })
       .limit(50);
+    if (error) throw error;
     const rows = (data ?? []) as AppNotification[];
     setItems(rows);
-    // Best-effort mark-as-read for anything unread.
+    // Best-effort mark-as-read for anything unread — must never fail the
+    // whole load (the notifications themselves already rendered above).
     const unread = rows.filter((n) => !n.read).map((n) => n.id);
     if (unread.length) {
-      await supabase.from('notifications').update({ read: true }).in('id', unread);
+      await supabase.from('notifications').update({ read: true }).in('id', unread).then(
+        () => {},
+        () => {},
+      );
     }
   }, []);
 
@@ -43,8 +52,16 @@ export default function NotificationsScreen() {
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    await load();
-    setRefreshing(false);
+    try {
+      await load();
+    } catch {
+      // Swallowed intentionally: pull-to-refresh failing just means whatever
+      // was already on screen stays put — no error state needed for a
+      // manual retry gesture the user can just repeat. What matters is that
+      // `finally` below unconditionally clears the spinner, unlike before.
+    } finally {
+      setRefreshing(false);
+    }
   }, [load]);
 
   if (loading) {

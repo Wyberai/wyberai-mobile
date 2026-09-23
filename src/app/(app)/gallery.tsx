@@ -28,14 +28,19 @@ export default function GalleryScreen() {
 
   async function onRefresh() {
     setRefreshing(true);
-    await new Promise<void>((resolve) => {
-      fetchGallery().then(({ entries: e, votedIds: v }) => {
-        setEntries(e);
-        setVotedIds(new Set(v));
-        resolve();
-      });
-    });
-    setRefreshing(false);
+    // fetchGallery() already catches its own errors and always resolves, but
+    // the hand-rolled Promise this replaced had no reject path AT ALL — if
+    // that contract ever changed, a rejection would leave the wrapping
+    // Promise permanently unsettled and this refresh spinner stuck forever
+    // with no timeout. try/finally is the correct defensive shape regardless
+    // of what the callee currently guarantees.
+    try {
+      const { entries: e, votedIds: v } = await fetchGallery();
+      setEntries(e);
+      setVotedIds(new Set(v));
+    } finally {
+      setRefreshing(false);
+    }
   }
 
   async function onVote(entry: GalleryEntry) {

@@ -58,15 +58,14 @@ export default function CodeScreen() {
 
   useEffect(() => {
     if (!id) return;
-    supabase
-      .from('projects')
-      .select('files')
-      .eq('id', id)
-      .maybeSingle()
+    // Wrapped in Promise.resolve() — Supabase's query builder is only a
+    // PromiseLike (thenable), whose own .then() doesn't guarantee .catch().
+    Promise.resolve(supabase.from('projects').select('files').eq('id', id).maybeSingle())
       .then(({ data }) => {
         setFiles(((data as { files?: FileMap } | null)?.files as FileMap) ?? {});
         setLoading(false);
-      });
+      })
+      .catch(() => setLoading(false)); // was missing — a rejected fetch left this screen spinning forever
   }, [id]);
 
   const tree = useMemo(() => groupFiles(files), [files]);

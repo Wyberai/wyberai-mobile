@@ -14,6 +14,7 @@ export interface Project {
   published_url: string | null;
   deployed_url: string | null;
   custom_domain: string | null;
+  custom_domain_verified: boolean | null;
   thumbnail_url: string | null;
   created_at: string;
   updated_at: string;

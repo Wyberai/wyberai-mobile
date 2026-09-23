@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -10,7 +10,7 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import { Stack, useLocalSearchParams, useRouter, type Href } from 'expo-router';
+import { Stack, useFocusEffect, useLocalSearchParams, useRouter, type Href } from 'expo-router';
 import * as WebBrowser from 'expo-web-browser';
 import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
@@ -23,13 +23,14 @@ import { useToast } from '@/components/Toast';
 import { Spinner } from '@/components/Spinner';
 import { PreviewActivityCard } from '@/components/PreviewActivityCard';
 import { BottomSheet } from '@/components/BottomSheet';
+import { DomainSheet } from '@/components/DomainSheet';
 import { useT } from '@/lib/i18n/useT';
 import { PROJECT_DETAIL_STRINGS } from '@/lib/i18n/dict/project-detail';
 import { PROJECTS_STRINGS } from '@/lib/i18n/dict/projects';
 import { brand, font, radius, space } from '@/lib/theme';
 
 const SELECT =
-  'id,user_id,name,description,framework,project_type,subdomain,published_url,deployed_url,custom_domain,thumbnail_url,created_at,updated_at';
+  'id,user_id,name,description,framework,project_type,subdomain,published_url,deployed_url,custom_domain,custom_domain_verified,thumbnail_url,created_at,updated_at';
 
 export default function ProjectDetail() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -45,6 +46,8 @@ export default function ProjectDetail() {
   const [savingName, setSavingName] = useState(false);
   const [duplicating, setDuplicating] = useState(false);
   const [paymentsOpen, setPaymentsOpen] = useState(false);
+  const [domainOpen, setDomainOpen] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const lastNavRef = useRef(0);
 
   // Debounce the tool-row pushes below — a double-tap (fat-finger, or the tap
@@ -59,16 +62,33 @@ export default function ProjectDetail() {
 
   const load = useCallback(async () => {
     if (!id) return;
-    const { data } = await supabase.from('projects').select(SELECT).eq('id', id).maybeSingle();
+    const { data, error } = await supabase.from('projects').select(SELECT).eq('id', id).maybeSingle();
+    if (error) {
+      // Distinguish a real fetch failure (RLS/grant gap, network error, a
+      // selected column not actually present) from a genuinely-missing
+      // project — treating them the same silently 404s every project screen
+      // for every user the moment a query error occurs, with no signal of
+      // why.
+      setLoadError(error.message);
+      setLoading(false);
+      return;
+    }
+    setLoadError(null);
     setProject((data as Project) ?? null);
     setLoading(false);
   }, [id]);
 
-  useEffect(() => {
-    // Fetch-on-mount: load() sets state only after its own awaits resolve.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    load();
-  }, [load]);
+  // Refetch on focus, not just on mount — this is what actually closes the
+  // domain/marketplace-purchase gap: DomainSheet's buy flow (and the Dodo
+  // checkout browser in general) has no push/webhook signal back into this
+  // screen, so returning to it (backgrounding/foregrounding the checkout
+  // browser, or navigating back) is the only reliable moment left to pick up
+  // a server-side change that happened while the screen was away.
+  useFocusEffect(
+    useCallback(() => {
+      load();
+    }, [load]),
+  );
 
   const live = project ? projectUrl(project) : null;
   const isMobile = project ? isMobileProject(project) : false;
@@ -220,6 +240,13 @@ export default function ProjectDetail() {
         <View style={styles.center}>
           <Spinner />
         </View>
+      ) : loadError ? (
+        <View style={styles.center}>
+          <Text style={styles.muted}>Couldn't load this project.</Text>
+          <Pressable onPress={() => { setLoading(true); load(); }} hitSlop={8} style={{ marginTop: space.md }}>
+            <Text style={[styles.muted, { color: brand.accent }]}>Retry</Text>
+          </Pressable>
+        </View>
       ) : !project ? (
         <View style={styles.center}>
           <Text style={styles.muted}>{t('projectNotFound')}</Text>
@@ -364,6 +391,13 @@ export default function ProjectDetail() {
               hint="Wire up a provider"
               onPress={() => setPaymentsOpen(true)}
             />
+            <View style={styles.toolDivider} />
+            <ToolRow
+              icon="link-outline"
+              label="Custom domain"
+              hint={project.custom_domain ?? 'Connect or buy one'}
+              onPress={() => setDomainOpen(true)}
+            />
           </View>
 
           {/* Publish — all project types can be published to a live URL */}
@@ -476,6 +510,17 @@ export default function ProjectDetail() {
           },
         ]}
       />
+
+      {project ? (
+        <DomainSheet
+          visible={domainOpen}
+          projectId={project.id}
+          currentDomain={project.custom_domain}
+          currentDomainVerified={project.custom_domain_verified}
+          onClose={() => setDomainOpen(false)}
+          onChanged={load}
+        />
+      ) : null}
     </>
   );
 }

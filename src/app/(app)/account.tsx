@@ -173,6 +173,18 @@ export default function AccountScreen() {
         />
         <View style={styles.divider} />
         <LinkRow
+          icon="storefront-outline"
+          label="Marketplace"
+          onPress={() => router.push('/marketplace' as Href)}
+        />
+        <View style={styles.divider} />
+        <LinkRow
+          icon="gift-outline"
+          label="Affiliate"
+          onPress={() => router.push('/affiliate' as Href)}
+        />
+        <View style={styles.divider} />
+        <LinkRow
           icon="key-outline"
           label="API & MCP"
           onPress={() => router.push('/api-keys' as Href)}

@@ -214,28 +214,46 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     }
   }
 
+  // These three are the app's actual front door — unlike signInWithApple/
+  // signInWithProvider above, they had no try/catch. A real network/TLS
+  // fault throws instead of resolving with {error}, which the caller
+  // (sign-in.tsx) awaits directly; an uncaught throw here means the
+  // caller's own setBusy(false) never runs and the submit button is stuck
+  // disabled with no retry short of a force-quit.
   async function sendCode(email: string) {
-    const { error } = await supabase.auth.signInWithOtp({
-      email: email.trim().toLowerCase(),
-    });
-    return { error: error?.message ?? null };
+    try {
+      const { error } = await supabase.auth.signInWithOtp({
+        email: email.trim().toLowerCase(),
+      });
+      return { error: error?.message ?? null };
+    } catch (e: any) {
+      return { error: e?.message ?? 'Could not send code — check your connection.' };
+    }
   }
 
   async function verifyCode(email: string, code: string) {
-    const { error } = await supabase.auth.verifyOtp({
-      email: email.trim().toLowerCase(),
-      token: code.trim(),
-      type: 'email',
-    });
-    return { error: error?.message ?? null };
+    try {
+      const { error } = await supabase.auth.verifyOtp({
+        email: email.trim().toLowerCase(),
+        token: code.trim(),
+        type: 'email',
+      });
+      return { error: error?.message ?? null };
+    } catch (e: any) {
+      return { error: e?.message ?? 'Could not verify code — check your connection.' };
+    }
   }
 
   async function signInWithPassword(email: string, password: string) {
-    const { error } = await supabase.auth.signInWithPassword({
-      email: email.trim().toLowerCase(),
-      password,
-    });
-    return { error: error?.message ?? null };
+    try {
+      const { error } = await supabase.auth.signInWithPassword({
+        email: email.trim().toLowerCase(),
+        password,
+      });
+      return { error: error?.message ?? null };
+    } catch (e: any) {
+      return { error: e?.message ?? 'Sign-in failed — check your connection.' };
+    }
   }
 
   async function signOut() {

@@ -94,6 +94,13 @@ function RootLayout() {
 
   if (!fontsLoaded) return null;
 
+  // One boundary wraps EVERYTHING that renders on a cold start — it
+  // previously wrapped only the "online" branch's provider tree, leaving
+  // both the offline screen and the branded splash overlay (which runs
+  // Reanimated shared-value animations on literally every launch, before
+  // anything else renders) able to crash straight to a white screen with no
+  // recovery, the exact class of "won't even open" crash Sentry would never
+  // see given how little real-build telemetry this app has ever collected.
   const body =
     isOnline === false ? (
       <View style={{ flex: 1, backgroundColor: brand.bg }}>
@@ -101,27 +108,25 @@ function RootLayout() {
         <OfflineScreen onRetry={() => NetInfo.fetch().then((state) => setIsOnline(state.isConnected !== false))} />
       </View>
     ) : (
-      <AppErrorBoundary>
-        <LocaleProvider>
-          <SessionProvider>
-            <ToastProvider>
-              <StatusBar style="light" />
-              <RootNavigator />
-              {updateReady ? (
-                <UpdateBanner onReload={() => Updates.reloadAsync().catch(() => {})} />
-              ) : null}
-              <UpdateRequiredModal visible={updateRequired} />
-            </ToastProvider>
-          </SessionProvider>
-        </LocaleProvider>
-      </AppErrorBoundary>
+      <LocaleProvider>
+        <SessionProvider>
+          <ToastProvider>
+            <StatusBar style="light" />
+            <RootNavigator />
+            {updateReady ? (
+              <UpdateBanner onReload={() => Updates.reloadAsync().catch(() => {})} />
+            ) : null}
+            <UpdateRequiredModal visible={updateRequired} />
+          </ToastProvider>
+        </SessionProvider>
+      </LocaleProvider>
     );
 
   return (
-    <>
+    <AppErrorBoundary>
       {body}
       {showBrandedSplash ? <BrandedSplashOverlay onDone={() => setShowBrandedSplash(false)} /> : null}
-    </>
+    </AppErrorBoundary>
   );
 }
 
@@ -160,15 +165,23 @@ function RootNavigator() {
     // Re-check hardware/enrollment on every attempt, not just at opt-in time —
     // a user can remove their last fingerprint/Face ID after opting in, which
     // must never turn into a permanent lockout with no way back into the app.
-    canUseBiometrics().then((available) => {
-      if (!available) {
-        setBiometricGate('off');
-        return;
-      }
-      LocalAuthentication.authenticateAsync({ promptMessage: 'Unlock WyberAi' }).then((result) => {
-        setBiometricGate(result.success ? 'passed' : 'required');
-      });
-    });
+    // Neither call below had a .catch(): LocalAuthentication.authenticateAsync
+    // is documented to throw (not resolve {success:false}) after too many
+    // failed attempts or a busy/unavailable sensor — a throw here meant
+    // setBiometricGate never ran, so the gate stayed 'required' and tapping
+    // "Try again" re-ran this same silently-failing chain with no visible
+    // effect (only the easy-to-miss "Sign out instead" escape hatch worked).
+    canUseBiometrics()
+      .then((available) => {
+        if (!available) {
+          setBiometricGate('off');
+          return;
+        }
+        return LocalAuthentication.authenticateAsync({ promptMessage: 'Unlock WyberAi' }).then((result) => {
+          setBiometricGate(result.success ? 'passed' : 'required');
+        });
+      })
+      .catch(() => setBiometricGate('required'));
   }, []);
 
   useEffect(() => {

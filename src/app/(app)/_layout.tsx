@@ -132,6 +132,10 @@ export default function AppTabsLayout() {
       <Tabs.Screen name="seo/[id]" options={{ href: null, title: 'SEO Check' }} />
       <Tabs.Screen name="collaborators/[id]" options={{ href: null, title: 'Team' }} />
       <Tabs.Screen name="gallery" options={{ href: null, title: 'Community Gallery' }} />
+      <Tabs.Screen name="templates" options={{ href: null, title: 'Templates' }} />
+      <Tabs.Screen name="marketplace" options={{ href: null, title: 'Marketplace' }} />
+      <Tabs.Screen name="affiliate" options={{ href: null, title: 'Affiliate' }} />
+      <Tabs.Screen name="mfa-setup" options={{ href: null, title: 'Two-Factor Auth' }} />
     </Tabs>
   );
 }
