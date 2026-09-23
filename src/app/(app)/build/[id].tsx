@@ -20,6 +20,7 @@ import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
 import * as ImageManipulator from 'expo-image-manipulator';
 import * as WebBrowser from 'expo-web-browser';
+import * as Clipboard from 'expo-clipboard';
 import { Image } from 'expo-image';
 import { useSession } from '@/ctx/session';
 import { supabase } from '@/lib/supabase';
@@ -44,6 +45,8 @@ import {
   publishProject,
   listSecretNames,
   saveSecret,
+  fetchSupabaseHealth,
+  restoreSupabaseHealth,
   type FileMap,
   type Plan,
   type ProjectType,
@@ -135,7 +138,21 @@ function autoFixPrompt(err: RuntimeErrorInfo): string {
 
 type Msg =
   | { id: string; role: 'user'; text: string }
-  | { id: string; role: 'assistant'; text: string; progress?: string[]; agentLanes?: AgentLane[]; streaming?: boolean }
+  | {
+      id: string;
+      role: 'assistant';
+      text: string;
+      progress?: string[];
+      agentLanes?: AgentLane[];
+      streaming?: boolean;
+      // Set on a failed turn so a one-tap Retry can re-send the exact prompt
+      // that failed, instead of the user having to retype it — mirrors web's
+      // ChatPanel retryPrompt/retryLane/handleRetry. Lane matters: a failed
+      // free chat reply must retry through runChat, not the paid run().
+      status?: 'error';
+      retryPrompt?: string;
+      retryLane?: 'build' | 'chat';
+    }
   | { id: string; role: 'suggestions'; items: Suggestion[] };
 
 export default function BuildScreen() {
@@ -508,6 +525,13 @@ export default function BuildScreen() {
   // which invalidates whatever generation was active without needing to
   // know its specific number.
   const buildGenRef = useRef(0);
+  // Elapsed-time readout ("Built in Xs") and the completion celebration both
+  // need "when did this turn start" and "was this a first build" — set once
+  // at the top of run() and read from whichever completion path the turn
+  // takes (runStagedBuild's finishTurn, or the simple non-staged path),
+  // since those are separate useCallbacks that don't share run()'s locals.
+  const turnStartRef = useRef(0);
+  const turnIsFirstBuildRef = useRef(false);
 
   // First build (no files yet), no image attached, agent-team on → stage the
   // build (Atlas plans → Forge scaffolds the shell → fills the rest in
@@ -608,17 +632,30 @@ export default function BuildScreen() {
       const finalFiles = filesRef.current;
       if (Object.keys(finalFiles).length === 0) {
         setMessages((m) =>
-          m.map((x) => (x.id === aId && x.role === 'assistant' ? { ...x, text: chatText || t('thatDidntWork'), streaming: false } : x)),
+          m.map((x) =>
+            x.id === aId && x.role === 'assistant'
+              ? { ...x, text: chatText || t('thatDidntWork'), streaming: false, status: 'error', retryPrompt: prompt, retryLane: 'build' }
+              : x,
+          ),
         );
         return;
       }
       supabase.from('projects').select('name').eq('id', id).maybeSingle().then(({ data }) => {
         if (data?.name && !goneRef.current) setName(data.name);
       });
+      // "Built in Xs" + a one-time completion celebration on a real first
+      // build — matches web's PreviewPanel.tsx (elapsed readout on every
+      // build; confetti gated the same way: first build only, more than a
+      // trivial number of files, not a from-template start).
+      const elapsedS = ((Date.now() - turnStartRef.current) / 1000).toFixed(1);
+      const doneText = `${chatText || t('done')}\n\nBuilt in ${elapsedS}s`;
+      if (turnIsFirstBuildRef.current && Object.keys(finalFiles).length > 3) {
+        showToast('Your app is ready! 🎉', 'success');
+      }
       setMessages((m) =>
-        m.map((x) => (x.id === aId && x.role === 'assistant' ? { ...x, text: chatText || t('done'), streaming: false } : x)),
+        m.map((x) => (x.id === aId && x.role === 'assistant' ? { ...x, text: doneText, streaming: false } : x)),
       );
-      saveMessage(id!, 'assistant', chatText || t('done'), { filesChanged: Object.keys(finalFiles), clientId: aId });
+      saveMessage(id!, 'assistant', doneText, { filesChanged: Object.keys(finalFiles), clientId: aId });
       saveVersion(id!, finalFiles, userMsgText);
       autoPreview(finalFiles);
       resolveImages(id!, finalFiles)
@@ -822,6 +859,8 @@ export default function BuildScreen() {
         setHealFailed(false);
       }
       const prompt = promptText.trim();
+      turnStartRef.current = Date.now();
+      turnIsFirstBuildRef.current = !opts?.isAutoFix && Object.keys(files).length === 0;
       // Snapshot for Undo — only for a real edit turn on an existing project
       // (never a first build, never the autofix retry itself, which would
       // otherwise checkpoint the already-broken state as an "undo point").
@@ -922,7 +961,7 @@ export default function BuildScreen() {
                 setMessages((m) =>
                   m.map((x) =>
                     x.id === aId && x.role === 'assistant'
-                      ? { ...x, text: chatText || t('thatDidntWork'), streaming: false }
+                      ? { ...x, text: chatText || t('thatDidntWork'), streaming: false, status: 'error', retryPrompt: prompt, retryLane: 'build' }
                       : x,
                   ),
                 );
@@ -947,17 +986,25 @@ export default function BuildScreen() {
                 .then(({ data }) => {
                   if (data?.name && !goneRef.current) setName(data.name);
                 });
+              // "Built in Xs" + a one-time completion celebration on a real
+              // first build — only when something actually changed; a no-op
+              // turn (chat reply, nothing to build) gets neither.
+              const elapsedS = ((Date.now() - turnStartRef.current) / 1000).toFixed(1);
+              const doneText = changed.length > 0 ? `${chatText || t('done')}\n\nBuilt in ${elapsedS}s` : chatText || t('done');
+              if (changed.length > 0 && turnIsFirstBuildRef.current && Object.keys(next).length > 3) {
+                showToast('Your app is ready! 🎉', 'success');
+              }
               setMessages((m) =>
                 m.map((x) =>
                   x.id === aId && x.role === 'assistant'
-                    ? { ...x, text: chatText || t('done'), streaming: false }
+                    ? { ...x, text: doneText, streaming: false }
                     : x,
                 ),
               );
               // Lovable-parity persistence: the assistant turn goes to chat
               // history, and the new file state becomes a restorable version.
               // Both best-effort — the build already succeeded.
-              saveMessage(id, 'assistant', chatText || t('done'), { filesChanged: changed, clientId: aId });
+              saveMessage(id, 'assistant', doneText, { filesChanged: changed, clientId: aId });
               saveVersion(id, next, userMsg.text);
               // The reveal: auto-render the freshly built app in the slide-up
               // sheet. Fire-and-forget — only runs when files actually changed.
@@ -994,7 +1041,7 @@ export default function BuildScreen() {
                 setMessages((m) =>
                   m.map((x) =>
                     x.id === aId && x.role === 'assistant'
-                      ? { ...x, text: `Saved on server, but: ${(e as Error).message}`, streaming: false }
+                      ? { ...x, text: `Saved on server, but: ${(e as Error).message}`, streaming: false, status: 'error', retryPrompt: prompt, retryLane: 'build' }
                       : x,
                   ),
                 );
@@ -1026,7 +1073,9 @@ export default function BuildScreen() {
                 : msg;
             setMessages((m) =>
               m.map((x) =>
-                x.id === aId && x.role === 'assistant' ? { ...x, text: shown, streaming: false } : x,
+                x.id === aId && x.role === 'assistant'
+                  ? { ...x, text: shown, streaming: false, status: 'error', retryPrompt: outOfCredits ? undefined : prompt, retryLane: 'build' }
+                  : x,
               ),
             );
             if (outOfCredits) {
@@ -1089,7 +1138,7 @@ export default function BuildScreen() {
   // or the reply model's own mid-answer handoff), it hands off to run() with
   // skipUserEcho so the message isn't shown twice.
   const runChat = useCallback(
-    (promptText: string, forceChat: boolean) => {
+    (promptText: string, forceChat: boolean, opts?: { skipUserEcho?: boolean }) => {
       if (!id || !user?.id || busy || chatBusy || chatRunningRef.current) return;
       chatRunningRef.current = true;
       setInput('');
@@ -1101,8 +1150,14 @@ export default function BuildScreen() {
       const history = windowedHistory(
         messages.filter((m): m is Extract<Msg, { role: 'user' | 'assistant' }> => m.role !== 'suggestions'),
       ).map((m) => ({ role: m.role, content: m.text }));
-      setMessages((m) => [...m, userMsg, assistant]);
-      saveMessage(id, 'user', userMsg.text, { clientId: userMsg.id });
+      // A retry of a chat-lane failure already has its user message visible
+      // from the original attempt — echoing it again would show it twice.
+      if (opts?.skipUserEcho) {
+        setMessages((m) => [...m, assistant]);
+      } else {
+        setMessages((m) => [...m, userMsg, assistant]);
+        saveMessage(id, 'user', userMsg.text, { clientId: userMsg.id });
+      }
 
       streamAssist(
         {
@@ -1145,13 +1200,30 @@ export default function BuildScreen() {
                 ? 'Switching apps dropped the connection — try sending that again.'
                 : 'Couldn\'t reach the assistant — try again in a moment.';
             setMessages((m) =>
-              m.map((x) => (x.id === aId && x.role === 'assistant' ? { ...x, text: shown, streaming: false } : x)),
+              m.map((x) =>
+                x.id === aId && x.role === 'assistant'
+                  ? { ...x, text: shown, streaming: false, status: 'error', retryPrompt: promptText, retryLane: 'chat' }
+                  : x,
+              ),
             );
           },
         },
       );
     },
     [id, user?.id, busy, chatBusy, messages, files, run],
+  );
+
+  // One-tap retry for a failed turn (mirrors web's ChatPanel handleRetry) —
+  // re-sends the exact prompt that failed through whichever lane it
+  // originally took, `skipUserEcho` so the user's message doesn't appear a
+  // second time (it's already visible above the failed assistant bubble).
+  const handleRetry = useCallback(
+    (msg: Msg) => {
+      if (msg.role !== 'assistant' || !msg.retryPrompt) return;
+      if (msg.retryLane === 'chat') runChat(msg.retryPrompt, true, { skipUserEcho: true });
+      else run(msg.retryPrompt, undefined, { skipUserEcho: true });
+    },
+    [run, runChat],
   );
 
   // The ONE entry point for the send box — classify BEFORE deciding whether
@@ -1482,6 +1554,66 @@ export default function BuildScreen() {
   );
 
   const hasFiles = Object.keys(files).length > 0;
+
+  // Paused-database banner — Supabase free-tier projects pause after ~1 week
+  // of inactivity; without this the app just silently stops persisting and
+  // the user has no idea why (mirrors web's PreviewPanel.tsx). The health
+  // endpoint itself reports 'not-connected' when there's no Supabase
+  // attached, so polling unconditionally (once files exist) is safe — no
+  // separate "is Supabase connected" tracking needed on mobile.
+  const [dbHealth, setDbHealth] = useState<'paused' | 'restoring' | null>(null);
+  const dbPollGen = useRef(0);
+  useEffect(() => {
+    if (!id || !hasFiles) return;
+    const gen = ++dbPollGen.current;
+    const check = () => {
+      fetchSupabaseHealth(id).then(({ status }) => {
+        if (dbPollGen.current !== gen || goneRef.current) return;
+        setDbHealth(status === 'paused' ? 'paused' : status === 'restoring' ? 'restoring' : null);
+      });
+    };
+    check();
+    const iv = setInterval(check, 5 * 60_000);
+    return () => { dbPollGen.current++; clearInterval(iv); };
+  }, [id, hasFiles]);
+
+  const restoreDb = useCallback(async () => {
+    if (!id) return;
+    setDbHealth('restoring');
+    try {
+      const { restored } = await restoreSupabaseHealth(id);
+      if (!restored) { setDbHealth('paused'); return; }
+      const gen = ++dbPollGen.current;
+      for (let i = 0; i < 24; i++) {
+        await new Promise((r) => setTimeout(r, 10_000));
+        if (dbPollGen.current !== gen || goneRef.current) return;
+        const { status } = await fetchSupabaseHealth(id);
+        if (status === 'ok') { setDbHealth(null); return; }
+      }
+    } catch {
+      setDbHealth('paused');
+    }
+  }, [id]);
+
+  // Storage-persistence nudge — an app that keeps its "data" in local
+  // component state with no backend attached loses everything on refresh,
+  // which reads as data loss rather than an expected limitation. Same
+  // heuristic web's PreviewPanel.tsx uses; mobile RN apps have no
+  // "browser refresh" concept in the same way, so this only applies to
+  // web/website/saas project types, matching where the WebView preview
+  // itself is shown.
+  const storageWarning = (() => {
+    if (type === 'mobile' || !hasFiles) return false;
+    const allContent = Object.values(files).map((f) => f?.content ?? '').join('\n');
+    const hasData = /useState[<(][^)]*\[\]|initialData\s*[=:]\s*\[|useState\(\[/.test(allContent);
+    const hasBackend =
+      allContent.includes('supabase') ||
+      allContent.includes('createClient') ||
+      allContent.includes('firebase') ||
+      allContent.includes('/api/public/cloud-insert');
+    return hasData && !hasBackend;
+  })();
+
   // Only a TRAILING @mention triggers the picker (typing at the end of the
   // input) — covers the common case without the complexity of tracking
   // cursor position through RN's TextInput selection events.
@@ -1603,21 +1735,19 @@ export default function BuildScreen() {
               </Text>
             </View>
           }
-          renderItem={({ item }) => <MessageBubble msg={item} onPickSuggestion={onPickSuggestion} />}
+          renderItem={({ item }) => <MessageBubble msg={item} onPickSuggestion={onPickSuggestion} onRetry={handleRetry} />}
         />
       )}
 
-      {planState === 'none' && autoFixError && !busy && !healFailed ? (
-        <View style={styles.autoFixBanner}>
-          <ActivityIndicator size="small" color={brand.warning} />
-          <Text style={styles.autoFixText} numberOfLines={2}>
-            Preview error — fixing it automatically…
-          </Text>
-          <Pressable onPress={() => setAutoFixError(null)} hitSlop={8}>
-            <Ionicons name="close" size={16} color={brand.textMuted} />
-          </Pressable>
-        </View>
-      ) : planState === 'none' && autoFixError && !busy && healFailed ? (
+      {/* Web's PreviewPanel.tsx is explicit: "do NOT announce the fix... the
+          user never sees that anything was auto-fixed" unless it truly
+          fails — most runtime hiccups resolve in 1-3s and announcing every
+          one of them reads as "something's wrong" for what's actually
+          routine self-healing. This used to show a visible "fixing it
+          automatically" banner on every single occurrence (a guaranteed
+          ~1.5s flash before the first retry even starts); now nothing shows
+          unless self-heal actually exhausts its attempts. */}
+      {planState === 'none' && autoFixError && !busy && healFailed ? (
         <View style={styles.autoFixBanner}>
           <Ionicons name="warning-outline" size={16} color={brand.danger} />
           <Text style={styles.autoFixText} numberOfLines={2}>
@@ -1938,6 +2068,10 @@ export default function BuildScreen() {
           onToggleSelectMode={type !== 'mobile' ? () => setSelectMode((v) => !v) : undefined}
           onElementSelected={(info) => { setSelectedEl(info); setSelectMode(false); }}
           bridgeRef={previewBridgeRef}
+          dbHealth={dbHealth}
+          onRestoreDb={restoreDb}
+          storageWarning={storageWarning}
+          onConnectSupabase={() => setConnectorsOpen(true)}
         />
       </SafeWidget>
 
@@ -2103,7 +2237,15 @@ const ps = StyleSheet.create({
   ghostText: { color: brand.textMuted, fontSize: 14, fontWeight: '600' },
 });
 
-function MessageBubble({ msg, onPickSuggestion }: { msg: Msg; onPickSuggestion: (s: Suggestion) => void }) {
+function MessageBubble({
+  msg,
+  onPickSuggestion,
+  onRetry,
+}: {
+  msg: Msg;
+  onPickSuggestion: (s: Suggestion) => void;
+  onRetry: (msg: Msg) => void;
+}) {
   if (msg.role === 'user') {
     return (
       <View style={[styles.bubble, styles.userBubble]}>
@@ -2161,11 +2303,53 @@ function MessageBubble({ msg, onPickSuggestion }: { msg: Msg; onPickSuggestion: 
       {msg.streaming && !msg.text && progress.length === 0 ? (
         <View style={styles.thinkingRow}>
           <ActivityIndicator color={brand.accent} size="small" />
-          <Text style={styles.progressText}>Building…</Text>
+          <CyclingBuildMessage />
+        </View>
+      ) : null}
+      {!msg.streaming && msg.text ? (
+        <View style={styles.bubbleActions}>
+          <Pressable
+            onPress={() => { tap(); Clipboard.setStringAsync(msg.text); }}
+            hitSlop={8}
+            style={styles.bubbleActionBtn}
+          >
+            <Ionicons name="copy-outline" size={13} color={brand.textFaint} />
+          </Pressable>
+          {msg.status === 'error' && msg.retryPrompt ? (
+            <Pressable onPress={() => { tap(); onRetry(msg); }} style={styles.retryChip}>
+              <Ionicons name="refresh" size={13} color={brand.accent} />
+              <Text style={styles.retryChipText}>Retry</Text>
+            </Pressable>
+          ) : null}
         </View>
       ) : null}
     </View>
   );
+}
+
+// Same message set + 1.8s rotation as web's PreviewPanel.tsx (MESSAGE_KEYS) —
+// before this, mobile showed a single static "Building…" for the whole
+// window between a turn starting and the first real [progress:] line
+// streaming in, which can be several seconds on a big first build.
+const BUILD_MESSAGES = [
+  'Cooking up your components…',
+  'Wiring the buttons…',
+  'Teaching pixels where to sit…',
+  'Mixing the color palette…',
+  'Bundling it all together…',
+  'Polishing the corners…',
+  'Almost plated and ready…',
+];
+
+function CyclingBuildMessage() {
+  const [idx, setIdx] = useState(0);
+  const [seconds, setSeconds] = useState(0);
+  useEffect(() => {
+    const msgIv = setInterval(() => setIdx((i) => (i + 1) % BUILD_MESSAGES.length), 1800);
+    const secIv = setInterval(() => setSeconds((s) => s + 1), 1000);
+    return () => { clearInterval(msgIv); clearInterval(secIv); };
+  }, []);
+  return <Text style={styles.progressText}>{BUILD_MESSAGES[idx]} ({seconds}s)</Text>;
 }
 
 const styles = StyleSheet.create({
@@ -2183,6 +2367,14 @@ const styles = StyleSheet.create({
   progressRow: { flexDirection: 'row', alignItems: 'center', gap: space.sm },
   progressText: { color: brand.textMuted, fontSize: 13 },
   thinkingRow: { flexDirection: 'row', alignItems: 'center', gap: space.sm },
+  bubbleActions: { flexDirection: 'row', alignItems: 'center', gap: space.sm, marginTop: 6 },
+  bubbleActionBtn: { padding: 2 },
+  retryChip: {
+    flexDirection: 'row', alignItems: 'center', gap: 4,
+    backgroundColor: 'rgba(14,165,233,0.1)', borderRadius: radius.pill,
+    paddingHorizontal: space.sm, paddingVertical: 3,
+  },
+  retryChipText: { color: brand.accent, fontSize: 11.5, fontWeight: '700' },
   suggestionsRow: { gap: space.sm, paddingVertical: 2 },
   suggestionChip: {
     backgroundColor: brand.surface,

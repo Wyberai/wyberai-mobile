@@ -1759,6 +1759,38 @@ export async function disableMfaBookkeeping(): Promise<void> {
   }).catch(() => {});
 }
 
+// ── Supabase health (paused free-tier project banner) ──────────────────────
+// Same endpoint web's PreviewPanel.tsx polls — the connector lookup itself
+// reports 'not-connected' for a project with no Supabase attached, so this
+// is safe to call unconditionally rather than needing to know in advance
+// whether one exists.
+export async function fetchSupabaseHealth(projectId: string): Promise<{ status: string }> {
+  try {
+    const token = await accessToken();
+    const res = await fetch(`${API_BASE}/api/connectors/supabase/health?projectId=${projectId}`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+    });
+    const data = await res.json().catch(() => ({}));
+    return { status: typeof data.status === 'string' ? data.status : 'unknown' };
+  } catch {
+    return { status: 'unknown' };
+  }
+}
+
+export async function restoreSupabaseHealth(projectId: string): Promise<{ restored: boolean }> {
+  const token = await accessToken();
+  const res = await fetch(`${API_BASE}/api/connectors/supabase/health`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify({ projectId, action: 'restore' }),
+  });
+  const data = await res.json().catch(() => ({}));
+  return { restored: !!data.restored };
+}
+
 function guessLang(path: string): string {
   if (path.endsWith('.tsx') || path.endsWith('.ts')) return 'typescript';
   if (path.endsWith('.jsx') || path.endsWith('.js')) return 'javascript';

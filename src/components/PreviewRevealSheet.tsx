@@ -58,7 +58,14 @@ const WEB_EASE = Easing.bezier(...motion.ease);
 
 // Bridges uncaught JS errors inside the previewed app back to the native
 // chat — this is what powers the AutoFix banner (build/[id].tsx). Injected
-// once per WebView load, before the app's own bundle runs.
+// once per WebView load, before the app's own bundle runs. Also emits a
+// heartbeat every 2s — a genuine infinite render loop / runaway synchronous
+// work freezes the WebView's single JS thread solid with no error ever
+// firing, so a MISSED heartbeat is the only way to detect it (same
+// mechanism web's PreviewPanel.tsx uses). CORS-blocked fetch calls are
+// already reported as 'wyber-cors-error' by the server-side sanitizeFiles()
+// pipeline that builds this HTML (src/lib/sanitize-files.ts's ERROR_RELAY,
+// shared with web) — nothing extra to inject for that one, just listen.
 const ERROR_BRIDGE_JS = `
 (function() {
   function report(payload) {
@@ -71,9 +78,13 @@ const ERROR_BRIDGE_JS = `
     var reason = e && e.reason;
     report({ type: 'rn_error', message: String(reason && reason.message || reason || 'Unhandled promise rejection'), stack: reason && reason.stack });
   });
+  setInterval(function() { report({ type: 'wyber-heartbeat' }); }, 2000);
   true;
 })();
 `;
+
+const HANG_THRESHOLD_MS = 10_000;
+const HANG_CHECK_INTERVAL_MS = 3_000;
 
 export function PreviewRevealSheet({
   state,
@@ -85,6 +96,10 @@ export function PreviewRevealSheet({
   onToggleSelectMode,
   onElementSelected,
   bridgeRef,
+  dbHealth = null,
+  onRestoreDb,
+  storageWarning = false,
+  onConnectSupabase,
 }: {
   state: RevealState;
   onClose: () => void;
@@ -103,6 +118,14 @@ export function PreviewRevealSheet({
   /** Parent-owned ref this component fills in with a postMessage function,
    * for sending optimistic wyber-set-class/wyber-set-text updates. */
   bridgeRef?: MutableRefObject<PreviewBridgeHandle | null>;
+  /** Supabase free-tier auto-pause status — polled by the parent (build/[id].tsx),
+   * this component just renders the banner/action. */
+  dbHealth?: 'paused' | 'restoring' | null;
+  onRestoreDb?: () => void;
+  /** True when the generated app stores data only in local component state
+   * with no backend connected — computed by the parent from `files`. */
+  storageWarning?: boolean;
+  onConnectSupabase?: () => void;
 }) {
   const insets = useSafeAreaInsets();
   const { height } = useWindowDimensions();
@@ -111,6 +134,27 @@ export function PreviewRevealSheet({
   const progress = useSharedValue(0);
   const sheetHeight = Math.round(height * 0.78);
   const webViewRef = useRef<WebView>(null);
+  const lastHeartbeat = useRef(0);
+  const [hung, setHung] = useState(false);
+  const [corsNotice, setCorsNotice] = useState<{ message: string; url?: string } | null>(null);
+
+  // Reset the baseline on every new build/load — otherwise the OLD WebView's
+  // last heartbeat lingers and the watchdog could fire on a brand-new load
+  // before it's even had a chance to send its first beat.
+  const contentKey = state.phase === 'ready' ? state.url : state.phase === 'ready-html' ? state.html : null;
+  useEffect(() => {
+    lastHeartbeat.current = Date.now();
+    setHung(false);
+    setCorsNotice(null);
+  }, [contentKey]);
+
+  useEffect(() => {
+    if (state.phase !== 'ready' && state.phase !== 'ready-html') return;
+    const iv = setInterval(() => {
+      if (Date.now() - lastHeartbeat.current > HANG_THRESHOLD_MS) setHung(true);
+    }, HANG_CHECK_INTERVAL_MS);
+    return () => clearInterval(iv);
+  }, [state.phase]);
 
   useEffect(() => {
     if (!bridgeRef) return;
@@ -194,6 +238,62 @@ export function PreviewRevealSheet({
             </View>
           </View>
 
+          {dbHealth === 'paused' ? (
+            <View style={styles.banner}>
+              <Text style={styles.bannerText}>
+                ⏸ Your Supabase database is <Text style={styles.bannerBold}>paused</Text> (free projects pause after a
+                week of inactivity) — nothing will load or save until it's restored.
+              </Text>
+              <Pressable onPress={() => { tap(); onRestoreDb?.(); }} style={styles.bannerBtn}>
+                <Text style={styles.bannerBtnText}>Restore now</Text>
+              </Pressable>
+            </View>
+          ) : dbHealth === 'restoring' ? (
+            <View style={[styles.banner, styles.bannerWarn]}>
+              <Spinner size={11} color="#fbbf24" />
+              <Text style={[styles.bannerText, styles.bannerTextWarn]}>Restoring your database — usually takes under a minute…</Text>
+            </View>
+          ) : null}
+
+          {hung ? (
+            <View style={styles.banner}>
+              <Text style={styles.bannerText}>
+                ⚠ The preview seems to have <Text style={styles.bannerBold}>frozen</Text> (unresponsive for 10s+) —
+                this usually means something in the app is stuck in a loop.
+              </Text>
+              <Pressable
+                onPress={() => { tap(); setHung(false); lastHeartbeat.current = Date.now(); webViewRef.current?.reload(); }}
+                style={styles.bannerBtn}
+              >
+                <Text style={styles.bannerBtnText}>Reload preview</Text>
+              </Pressable>
+            </View>
+          ) : null}
+
+          {corsNotice ? (
+            <View style={[styles.banner, styles.bannerWarn]}>
+              <Text style={[styles.bannerText, styles.bannerTextWarn]}>
+                ⚠ This app tried to call {corsNotice.url ? <Text style={styles.bannerCode}>{corsNotice.url}</Text> : 'an external API'} directly, and
+                that API's server doesn't allow requests from this origin (CORS). This usually needs a server-side
+                proxy for that call, not a builder fix.
+              </Text>
+              <Pressable onPress={() => setCorsNotice(null)} hitSlop={8}>
+                <Ionicons name="close" size={16} color="#fef3c7" />
+              </Pressable>
+            </View>
+          ) : null}
+
+          {storageWarning && (state.phase === 'ready' || state.phase === 'ready-html') && !state.refreshing ? (
+            <View style={[styles.banner, styles.bannerWarn]}>
+              <Text style={[styles.bannerText, styles.bannerTextWarn]}>
+                ⚠ Data is stored in browser memory only — resets on refresh. Connect a database to save permanently.
+              </Text>
+              <Pressable onPress={() => { tap(); onConnectSupabase?.(); }}>
+                <Text style={styles.bannerLink}>Connect Supabase →</Text>
+              </Pressable>
+            </View>
+          ) : null}
+
           {state.phase === 'building' ? (
             <View style={styles.gameWrap}>
               <WebView
@@ -241,6 +341,12 @@ export function PreviewRevealSheet({
                     const data = JSON.parse(e.nativeEvent.data);
                     if (data?.type === 'rn_error') onRuntimeError?.(data);
                     else if (data?.type === 'wyber-element-selected') onElementSelected?.(data);
+                    else if (data?.type === 'wyber-heartbeat') {
+                      lastHeartbeat.current = Date.now();
+                      if (hung) setHung(false);
+                    } else if (data?.type === 'wyber-cors-error') {
+                      setCorsNotice({ message: String(data.message || ''), url: data.url });
+                    }
                   } catch {
                     // In-app render failures show their own fallback card inside
                     // the WebView — a non-JSON message is nothing to act on.
@@ -333,4 +439,24 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
   },
   refreshingText: { color: brand.text, fontSize: 11.5, fontWeight: '600' },
+  banner: {
+    flexShrink: 0,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: space.sm,
+    paddingHorizontal: space.md,
+    paddingVertical: space.sm,
+    backgroundColor: 'rgba(127,29,29,0.92)',
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(248,113,113,0.25)',
+  },
+  bannerWarn: { backgroundColor: 'rgba(120,53,15,0.9)', borderBottomColor: 'rgba(251,191,36,0.2)' },
+  bannerText: { flex: 1, color: '#fecaca', fontSize: 11, lineHeight: 15 },
+  bannerTextWarn: { color: '#fef3c7' },
+  bannerBold: { fontWeight: '700' },
+  bannerCode: { fontFamily: 'monospace', backgroundColor: 'rgba(0,0,0,0.2)' },
+  bannerBtn: { backgroundColor: '#ef4444', borderRadius: radius.sm, paddingHorizontal: space.sm + 2, paddingVertical: 5 },
+  bannerBtnText: { color: '#fff', fontSize: 11, fontWeight: '700' },
+  bannerLink: { color: '#fbbf24', fontSize: 11, fontWeight: '600' },
 });
