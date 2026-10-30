@@ -21,6 +21,7 @@ import type { FileMap } from '@/lib/api';
 import { tap, warn } from '@/lib/haptics';
 import { useToast } from '@/components/Toast';
 import { Spinner } from '@/components/Spinner';
+import { WebsiteLaunchChecklist } from '@/components/WebsiteLaunchChecklist';
 import { PreviewActivityCard } from '@/components/PreviewActivityCard';
 import { BottomSheet } from '@/components/BottomSheet';
 import { DomainSheet } from '@/components/DomainSheet';
@@ -30,7 +31,7 @@ import { PROJECTS_STRINGS } from '@/lib/i18n/dict/projects';
 import { brand, font, radius, space } from '@/lib/theme';
 
 const SELECT =
-  'id,user_id,name,description,framework,project_type,subdomain,published_url,deployed_url,custom_domain,custom_domain_verified,thumbnail_url,created_at,updated_at';
+  'id,user_id,name,description,framework,project_type,subdomain,published_url,deployed_url,custom_domain,custom_domain_verified,is_public,thumbnail_url,created_at,updated_at';
 
 export default function ProjectDetail() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -305,6 +306,19 @@ export default function ProjectDetail() {
           )}
           {project.description ? (
             <Text style={styles.desc}>{project.description}</Text>
+          ) : null}
+
+          {project.project_type === 'website' ? (
+            <WebsiteLaunchChecklist
+              projectId={project.id}
+              isPublic={!!project.is_public}
+              customDomain={project.custom_domain}
+              domainVerified={!!project.custom_domain_verified}
+              onOpenBuilder={() => navigateOnce(`/build/${project.id}` as Href)}
+              onOpenSeo={() => navigateOnce(`/seo/${project.id}` as Href)}
+              onPublish={() => doPublish(false)}
+              onDomain={() => setDomainOpen(true)}
+            />
           ) : null}
 
           <View style={styles.metaCard}>
