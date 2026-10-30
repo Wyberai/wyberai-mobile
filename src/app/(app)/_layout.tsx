@@ -131,6 +131,10 @@ export default function AppTabsLayout() {
       <Tabs.Screen name="database-status/[id]" options={{ href: null, title: 'Database' }} />
       <Tabs.Screen name="seo/[id]" options={{ href: null, title: 'SEO Check' }} />
       <Tabs.Screen name="collaborators/[id]" options={{ href: null, title: 'Team' }} />
+      <Tabs.Screen name="grow/[id]" options={{ href: null, title: 'Grow' }} />
+      <Tabs.Screen name="launch-kit/[id]" options={{ href: null, title: 'Launch kit' }} />
+      <Tabs.Screen name="analytics/[id]" options={{ href: null, title: 'Analytics' }} />
+      <Tabs.Screen name="feedback/[id]" options={{ href: null, title: 'Feedback' }} />
       <Tabs.Screen name="gallery" options={{ href: null, title: 'Community Gallery' }} />
       <Tabs.Screen name="templates" options={{ href: null, title: 'Templates' }} />
       <Tabs.Screen name="marketplace" options={{ href: null, title: 'Marketplace' }} />

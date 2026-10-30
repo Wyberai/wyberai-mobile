@@ -1855,3 +1855,90 @@ function guessLang(path: string): string {
   if (path.endsWith('.html')) return 'html';
   return 'plaintext';
 }
+
+// ── Grow / Launch Kit / Analytics / Feedback (thin wrappers over the web routes) ──
+async function authedJson<T>(path: string, init: { method?: string; body?: unknown } = {}): Promise<T> {
+  const token = await accessToken();
+  const res = await fetch(`${API_BASE}${path}`, {
+    method: init.method ?? 'GET',
+    headers: {
+      ...(init.body !== undefined ? { 'Content-Type': 'application/json' } : {}),
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    ...(init.body !== undefined ? { body: JSON.stringify(init.body) } : {}),
+  });
+  const data = (await res.json().catch(() => ({}))) as T & { error?: string };
+  if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
+  return data;
+}
+
+/**
+ * Is the caller in India? Same IP-country rule web uses to show the Grow tab
+ * (GET /api/region → resolveRegion). Fails closed: any error means "no", so
+ * an India-only feature never shows by accident.
+ */
+export async function fetchIsIndia(): Promise<boolean> {
+  try {
+    return (await authedJson<{ india?: boolean }>('/api/region')).india === true;
+  } catch {
+    return false;
+  }
+}
+
+export type AnalyticsSummary = {
+  visitors: number;
+  pageViews: number;
+  viewsPerVisit: number;
+  topPages: { path: string; count: number }[];
+  topReferrers: { source: string; count: number }[];
+  daily: { date: string; count: number }[];
+  rangeDays: number;
+};
+
+export function fetchAnalyticsSummary(projectId: string, days: number): Promise<AnalyticsSummary> {
+  return authedJson(`/api/analytics/summary?projectId=${projectId}&days=${days}`);
+}
+
+export async function fetchAnalyticsInsights(projectId: string, days: number): Promise<string[]> {
+  try {
+    return (await authedJson<{ insights?: string[] }>('/api/analytics/insights', { method: 'POST', body: { projectId, days } })).insights ?? [];
+  } catch {
+    return [];
+  }
+}
+
+export type LaunchKitPosts = {
+  url: string;
+  posts: { whatsapp: string; linkedin: string; x: string; instagram: string };
+  productHunt: { tagline: string; description: string };
+};
+
+export function fetchLaunchKit(projectId: string): Promise<LaunchKitPosts> {
+  return authedJson('/api/launch-kit', { method: 'POST', body: { projectId } });
+}
+
+export type FeedbackComment = {
+  id: string;
+  page_path: string;
+  body: string;
+  author_name: string | null;
+  resolved: boolean;
+  created_at: string;
+};
+
+export async function fetchFeedback(projectId: string): Promise<{ comments: FeedbackComment[]; enabled: boolean }> {
+  const data = await authedJson<{ comments?: FeedbackComment[]; feedbackModeEnabled?: boolean }>(`/api/preview-comments?projectId=${projectId}`);
+  return { comments: data.comments ?? [], enabled: !!data.feedbackModeEnabled };
+}
+
+export async function setFeedbackMode(projectId: string, enabled: boolean): Promise<void> {
+  await authedJson('/api/preview-comments/toggle', { method: 'POST', body: { projectId, enabled } });
+}
+
+export async function resolveFeedback(id: string, resolved: boolean): Promise<void> {
+  await authedJson('/api/preview-comments', { method: 'PATCH', body: { id, resolved } });
+}
+
+export async function deleteFeedback(id: string): Promise<void> {
+  await authedJson(`/api/preview-comments?id=${id}`, { method: 'DELETE' });
+}

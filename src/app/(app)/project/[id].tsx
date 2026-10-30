@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -16,7 +16,7 @@ import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '@/lib/supabase';
 import { projectUrl, isMobileProject, type Project } from '@/lib/types';
-import { API_BASE, deleteProject, duplicateProject, publishProject, renameProject, unpublishProject } from '@/lib/api';
+import { API_BASE, deleteProject, fetchIsIndia, duplicateProject, publishProject, renameProject, unpublishProject } from '@/lib/api';
 import type { FileMap } from '@/lib/api';
 import { tap, warn } from '@/lib/haptics';
 import { useToast } from '@/components/Toast';
@@ -47,6 +47,7 @@ export default function ProjectDetail() {
   const [duplicating, setDuplicating] = useState(false);
   const [paymentsOpen, setPaymentsOpen] = useState(false);
   const [domainOpen, setDomainOpen] = useState(false);
+  const [india, setIndia] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const lastNavRef = useRef(0);
 
@@ -91,6 +92,9 @@ export default function ProjectDetail() {
   );
 
   const live = project ? projectUrl(project) : null;
+
+  // Grow is India-only; asked of the server (same rule as web), fails closed.
+  useEffect(() => { fetchIsIndia().then(setIndia); }, []);
   const isMobile = project ? isMobileProject(project) : false;
 
   async function doPublish(override = false) {
@@ -349,6 +353,42 @@ export default function ProjectDetail() {
               hint={t('viewCodeHint')}
               onPress={() => router.push(`/code/${project.id}`)}
             />
+            {india && !isMobileProject(project) ? (
+              <>
+                <View style={styles.toolDivider} />
+                <ToolRow
+                  icon="trending-up-outline"
+                  label="Grow"
+                  hint="WhatsApp, UPI, Google listing"
+                  onPress={() => navigateOnce(`/grow/${project.id}` as Href)}
+                />
+              </>
+            ) : null}
+            {live ? (
+              <>
+                <View style={styles.toolDivider} />
+                <ToolRow
+                  icon="megaphone-outline"
+                  label="Launch kit"
+                  hint="Share card, QR, launch posts"
+                  onPress={() => navigateOnce(`/launch-kit/${project.id}` as Href)}
+                />
+                <View style={styles.toolDivider} />
+                <ToolRow
+                  icon="stats-chart-outline"
+                  label="Analytics"
+                  hint="Visitors and top pages"
+                  onPress={() => navigateOnce(`/analytics/${project.id}` as Href)}
+                />
+                <View style={styles.toolDivider} />
+                <ToolRow
+                  icon="chatbubble-ellipses-outline"
+                  label="Feedback"
+                  hint="Comments left on your live app"
+                  onPress={() => navigateOnce(`/feedback/${project.id}` as Href)}
+                />
+              </>
+            ) : null}
             <View style={styles.toolDivider} />
             <ToolRow
               icon={duplicating ? 'hourglass-outline' : 'copy-outline'}
