@@ -182,8 +182,7 @@ export async function resolveImages(
 
 /**
  * Credits + plan in one query — `profiles.plan` is the same column the Dodo
- * webhook writes on web (see lib/credits.ts PlanId). Powers the model-tier
- * picker's plan-gating (tierAllowedForPlan) in build/[id].tsx.
+ * webhook writes on web (see lib/credits.ts PlanId).
  */
 export async function fetchAccount(): Promise<{ credits: number; plan: string }> {
   const { data: userData } = await supabase.auth.getUser();
@@ -488,6 +487,53 @@ export function planToSpec(plan: Plan, originalPrompt: string): string {
 
 export type GenerateHandle = { abort: () => void };
 
+/** The server's own words for a 402 (cost vs balance), parsed from the
+ * `Build failed (402): {json}` message streamGenerate raises. */
+export function creditWallDetail(message: string): string | null {
+  const m = message.match(/\(402\):\s*(\{[\s\S]*)/);
+  if (!m) return null;
+  try {
+    const err = (JSON.parse(m[1]) as { error?: unknown }).error;
+    return typeof err === 'string' && err.trim() ? err.trim() : null;
+  } catch { return null; }
+}
+
+/** RFC4122 v4 — /api/generate/turn only accepts 36 hex-and-dash chars. */
+function newTurnId(): string {
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16);
+  });
+}
+
+/**
+ * Resumable turns (mirrors web ChatPanel): when the stream dies mid-turn the
+ * server keeps generating and saves the finished output under our turnId.
+ * Poll GET /api/generate/turn until it lands so the turn finishes through the
+ * normal path. null = nothing arrived in time (or the user stopped).
+ */
+async function fetchFinishedTurn(
+  turnId: string,
+  token: string | null,
+  windowMs: number,
+  isAborted: () => boolean,
+): Promise<string | null> {
+  const deadline = Date.now() + windowMs;
+  while (Date.now() < deadline && !isAborted()) {
+    await new Promise((r) => setTimeout(r, 3000));
+    if (isAborted()) return null;
+    try {
+      const res = await fetch(`${API_BASE}/api/generate/turn?id=${turnId}`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (!res.ok) continue; // 404 = still running server-side
+      const data = (await res.json()) as { text?: string };
+      return data.text ?? '';
+    } catch { /* still offline — keep waiting */ }
+  }
+  return null;
+}
+
 /**
  * Stream a build/edit from /api/generate. React Native's fetch can't read a
  * response body incrementally, so this uses XMLHttpRequest — `onprogress` fires
@@ -517,11 +563,6 @@ export function streamGenerate(
     buildId?: string;
     buildComplexity?: 'HIGH' | 'LOW';
     totalPlannedFiles?: number;
-    /** Explicit model-tier pick from build/[id].tsx's picker (see lib/credits.ts).
-     * Omit to let the server's own auto-routing decide, same as web's
-     * `tierTouched ? modelTier : undefined`. Server validates this against the
-     * user's real plan (tierAllowedForPlan) regardless of what's sent here. */
-    modelTier?: 'fast' | 'default' | 'premium' | 'fable' | 'gpt' | 'wybercode';
     /** Attached text-like files (extracted content) — matches the web app's
      * ChatPanel `attachedText` field. */
     attachedText?: { name: string; content: string }[];
@@ -554,21 +595,37 @@ export function streamGenerate(
   // builder"). withTimeout + .catch guarantees onError always runs, so busy
   // always resets.
   let aborted = false;
+  const turnId = newTurnId();
   withTimeout(accessToken(), 15_000, 'Sign-in check')
     .then((token) => {
       if (aborted) return;
       if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+
+      // A dropped stream (reset / timeout) is not a failed build: the server
+      // finishes and saves it. Wait longer if we'd already seen output (the
+      // build was definitely running); briefly if the request may never have
+      // reached the server.
+      const recoverOrFail = (failMessage: string) => {
+        const seen = xhr.responseText.length > 0;
+        void fetchFinishedTurn(turnId, token, seen ? 7 * 60_000 : 45_000, () => aborted).then((text) => {
+          if (aborted) return;
+          if (text === null) { handlers.onError(failMessage); return; }
+          handlers.onText(text);
+          handlers.onDone(text);
+        });
+      };
 
       xhr.onprogress = () => handlers.onText(xhr.responseText);
       xhr.onload = () => {
         if (xhr.status >= 200 && xhr.status < 300) handlers.onDone(xhr.responseText);
         else handlers.onError(`Build failed (${xhr.status}): ${xhr.responseText.slice(0, 200)}`);
       };
-      xhr.onerror = () => handlers.onError('Network error during build');
-      xhr.ontimeout = () => handlers.onError('Build timed out — check your connection and try again.');
+      xhr.onerror = () => recoverOrFail('Network error during build');
+      xhr.ontimeout = () => recoverOrFail('Build timed out — check your connection and try again.');
 
       xhr.send(
         JSON.stringify({
+          turnId,
           prompt: params.prompt,
           framework: params.projectType === 'mobile' ? 'react-native' : 'react-vite',
           fileContext,
@@ -585,7 +642,6 @@ export function streamGenerate(
           ...(params.buildId ? { buildId: params.buildId } : {}),
           ...(params.buildComplexity ? { buildComplexity: params.buildComplexity } : {}),
           ...(params.totalPlannedFiles !== undefined ? { totalPlannedFiles: params.totalPlannedFiles } : {}),
-          ...(params.modelTier ? { modelTier: params.modelTier } : {}),
           ...(params.attachedText?.length ? { attachedText: params.attachedText } : {}),
           ...(params.documents?.length ? { documents: params.documents } : {}),
           ...(params.image ? { image: params.image } : {}),

@@ -4,12 +4,11 @@
  * Ported verbatim from the web app (src/lib/credits.ts). Keep in sync with
  * the web original — drift here means mobile and web charge (or gate model
  * tiers) differently for the identical action, and the server is the real
- * authority anyway (see /api/generate's tierAllowedForPlan check), so this
+ * authority anyway (the server picks the model; clients never choose one), so this
  * copy only needs to match what the server actually enforces.
  */
 
 export type ModelTier = 'fast' | 'default' | 'premium' | 'fable' | 'gpt' | 'wybercode'
-export type ModelProvider = 'anthropic' | 'openai' | 'wybercode'
 /**
  * Real DB plan values written to profiles.plan by the Dodo webhook. 'business'
  * never existed on Dodo — a leftover from the pre-Dodo Stripe integration —
@@ -38,21 +37,6 @@ export type ActionType =
   | 'gtm-icp-sequence'
   | 'gtm-lead-enrich'
   | 'preview-access'
-
-/** Human-readable model info for UI */
-export const MODEL_META: Record<ModelTier, {
-  label: string
-  tagline: string
-  minPlan: PlanId
-  provider: ModelProvider
-}> = {
-  fast:    { label: 'Sonnet', tagline: 'Fast & smart — great for most apps',     minPlan: 'free',    provider: 'anthropic' },
-  default: { label: 'Opus',   tagline: 'Higher quality for complex apps',       minPlan: 'starter', provider: 'anthropic' },
-  premium: { label: 'Opus (priority)', tagline: 'Same power, priority queue',   minPlan: 'builder', provider: 'anthropic' },
-  fable:   { label: 'Fable', tagline: 'Most powerful — best for large apps',    minPlan: 'pro',     provider: 'anthropic' },
-  gpt:     { label: 'GPT',     tagline: 'OpenAI — an alternative engine for the same build', minPlan: 'free', provider: 'openai' },
-  wybercode: { label: 'WyberCode', tagline: 'Our own coding engine — fast & free while in beta', minPlan: 'free', provider: 'wybercode' },
-}
 
 /**
  * Cost multiplier relative to fast/Sonnet. Only governs the actions that
@@ -154,23 +138,3 @@ export function creditCost(action: ActionType, tier: ModelTier = 'default', buil
   return Math.max(1, Math.round(base * multiplier))
 }
 
-// Exhaustive over PlanId — adding a plan id without adding it here is a
-// COMPILE ERROR, not a silent fallback to rank 0.
-export const PLAN_RANK: Record<PlanId, number> = {
-  free: 0,
-  spark: 0,
-  starter: 1,
-  builder: 2,
-  pro: 3,
-  growth: 4,
-  scale: 5,
-}
-
-// Sonnet (fast) = free; Opus (default) = Starter+; premium = Builder+; Fable = Pro+.
-const MIN_TIER_RANK: Record<ModelTier, number> = { fast: 0, default: 1, premium: 2, fable: 3, gpt: 0, wybercode: 0 }
-
-/** Plans that may use a given model tier */
-export function tierAllowedForPlan(tier: ModelTier, plan: string): boolean {
-  const rank = PLAN_RANK[plan as PlanId] ?? 0
-  return rank >= MIN_TIER_RANK[tier]
-}

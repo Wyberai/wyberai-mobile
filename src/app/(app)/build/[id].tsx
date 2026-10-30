@@ -36,6 +36,7 @@ import {
   saveMessage,
   saveVersion,
   streamGenerate,
+  creditWallDetail,
   streamAssist,
   fetchPlanManifest,
   toFileContext,
@@ -56,7 +57,7 @@ import { buildStagedPlan, forgeLine, pickRouterFile, type PlannedFile } from '@/
 import { classifyIntent } from '@/lib/intent';
 import { windowedHistory } from '@/lib/chat-history-window';
 import { detectDeps, detectRegulated, type RegulatedDomain } from '@/lib/detect-deps';
-import { MODEL_META, creditCost, tierAllowedForPlan, type ModelTier } from '@/lib/credits';
+import { creditCost } from '@/lib/credits';
 import * as Sharing from 'expo-sharing';
 import * as StoreReview from 'expo-store-review';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -161,16 +162,7 @@ export default function BuildScreen() {
   const t = useT(BUILD_SCREEN_STRINGS);
   // Credits come from the shared session context (single source, auto-refreshed
   // on app foreground) so a web top-up reflects here too.
-  const { user, credits, plan: userPlan, refreshCredits } = useSession();
-
-  // Model choice: Sonnet (fast) shown by default, but until the user actually
-  // taps another one (tierTouched), nothing explicit is sent — the server's
-  // own complexity-aware auto-routing decides. Same picker web's ChatPanel
-  // has (Opus/Fable one tap away, disabled — not hidden — if the current
-  // plan doesn't reach them). See lib/credits.ts.
-  const PICKABLE_TIERS: ModelTier[] = ['fast', 'default', 'fable'];
-  const [modelTier, setModelTier] = useState<ModelTier>('fast');
-  const [tierTouched, setTierTouched] = useState(false);
+  const { user, credits, refreshCredits } = useSession();
 
   const [name, setName] = useState('');
   const [type, setType] = useState<ProjectType>('web');
@@ -601,7 +593,7 @@ export default function BuildScreen() {
     ): Promise<{ ok: boolean; changed: string[]; chatText: string }> =>
       new Promise((resolve) => {
         const h = streamGenerate(
-          { prompt, projectId: id!, userId: user!.id, projectType: type, files: filesRef.current, history, modelTier: tierTouched ? modelTier : undefined, buildId, ...stageOpts },
+          { prompt, projectId: id!, userId: user!.id, projectType: type, files: filesRef.current, history, buildId, ...stageOpts },
           {
             onText: (full) => paintBubble(full, showText ? cleanStreamingDisplay(full) : undefined),
             onDone: (full) => {
@@ -702,7 +694,7 @@ export default function BuildScreen() {
             throw new Error(t('outOfCreditsBody'));
           }
           if (droppedInBackground) setInput(prompt);
-          throw new Error(droppedInBackground ? 'Build interrupted — switching apps dropped the connection. Your prompt is back in the box, ready to send again.' : msg);
+          throw new Error(droppedInBackground ? 'That build didn’t finish. Your prompt is back in the box — tap send to run it again.' : msg);
         }
         await finishTurn(result.chatText);
         return;
@@ -834,7 +826,7 @@ export default function BuildScreen() {
         refreshCredits();
       }
     }
-  }, [id, user, type, t, refreshCredits, autoPreview, router, modelTier, tierTouched]);
+  }, [id, user, type, t, refreshCredits, autoPreview, router]);
 
   const run = useCallback(
     (promptText: string, displayText?: string, opts?: { consumeImage?: boolean; skipUserEcho?: boolean; isAutoFix?: boolean }) => {
@@ -932,7 +924,7 @@ export default function BuildScreen() {
       }
 
       handleRef.current = streamGenerate(
-        { prompt, projectId: id, userId: user.id, projectType: type, files, history, image, attachedText, documents, modelTier: tierTouched ? modelTier : undefined },
+        { prompt, projectId: id, userId: user.id, projectType: type, files, history, image, attachedText, documents },
         {
           onText: (full) => {
             const shown = cleanStreamingDisplay(full);
@@ -1067,9 +1059,9 @@ export default function BuildScreen() {
             const droppedInBackground =
               backgroundedDuringRunRef.current && /network|timeout/i.test(msg);
             const shown = outOfCredits
-              ? t('outOfCreditsBody')
+              ? creditWallDetail(msg) ?? t('outOfCreditsBody')
               : droppedInBackground
-                ? 'Build interrupted — switching apps dropped the connection. Your prompt is back in the box, ready to send again.'
+                ? 'That build didn’t finish. Your prompt is back in the box — tap send to run it again.'
                 : msg;
             setMessages((m) =>
               m.map((x) =>
@@ -1093,7 +1085,7 @@ export default function BuildScreen() {
         },
       );
     },
-    [id, user?.id, busy, chatBusy, type, files, messages, refreshCredits, autoPreview, router, t, clearPendingImage, runStagedBuild, modelTier, tierTouched],
+    [id, user?.id, busy, chatBusy, type, files, messages, refreshCredits, autoPreview, router, t, clearPendingImage, runStagedBuild],
   );
 
   // Always-fresh handle on run() for the auto-heal timer below — that timer
@@ -1197,7 +1189,7 @@ export default function BuildScreen() {
             const shown = /session expired/i.test(msg)
               ? msg
               : droppedInBackground
-                ? 'Switching apps dropped the connection — try sending that again.'
+                ? 'That message didn’t go through — tap send to try it again.'
                 : 'Couldn\'t reach the assistant — try again in a moment.';
             setMessages((m) =>
               m.map((x) =>
@@ -1641,29 +1633,11 @@ export default function BuildScreen() {
   // gives an honest range instead; for edits (not a BUILD_ACTION) creditCost
   // ignores buildTier entirely, so lo === hi and this still shows one exact
   // number there.
-  const costLabel = (tier: ModelTier) => {
-    const lo = creditCost(estimateAction, tier, 'small');
-    const hi = creditCost(estimateAction, tier, 'xl');
+  const costRange = (() => {
+    const lo = creditCost(estimateAction, 'fast', 'small');
+    const hi = creditCost(estimateAction, 'fast', 'xl');
     return lo === hi ? `${lo}cr` : `${lo}–${hi}cr`;
-  };
-  const onPickTier = (tier: ModelTier) => {
-    if (tierAllowedForPlan(tier, userPlan)) {
-      tap();
-      setModelTier(tier);
-      setTierTouched(true);
-      return;
-    }
-    const meta = MODEL_META[tier];
-    const planLabel = meta.minPlan.charAt(0).toUpperCase() + meta.minPlan.slice(1);
-    Alert.alert(
-      `${meta.label} needs ${planLabel}+`,
-      `Upgrade to the ${planLabel} plan or higher to use ${meta.label} for builds and edits.`,
-      [
-        { text: 'Not now', style: 'cancel' },
-        { text: 'Upgrade', onPress: () => router.push('/paywall') },
-      ],
-    );
-  };
+  })();
 
   return (
     <KeyboardAvoidingView
@@ -1915,28 +1889,10 @@ export default function BuildScreen() {
           keyboardShouldPersistTaps="handled"
           contentContainerStyle={styles.modelRow}
         >
-          {PICKABLE_TIERS.map((tier) => {
-            const meta = MODEL_META[tier];
-            const allowed = tierAllowedForPlan(tier, userPlan);
-            const active = tierTouched && modelTier === tier;
-            return (
-              <Pressable
-                key={tier}
-                onPress={() => onPickTier(tier)}
-                style={[styles.tierPill, active && styles.tierPillActive, !allowed && styles.tierPillDisabled]}
-              >
-                <Text style={[styles.tierPillText, active && styles.tierPillTextActive]}>
-                  {meta.label} · {costLabel(tier)}{!allowed ? ' 🔒' : ''}
-                </Text>
-              </Pressable>
-            );
-          })}
           <View style={styles.costChip}>
             <Ionicons name="flash-outline" size={11} color={brand.textFaint} />
             <Text style={styles.costChipText}>
-              {tierTouched
-                ? `~${costLabel(modelTier)}`
-                : `~${creditCost(estimateAction, 'fast', 'small')}–${creditCost(estimateAction, 'default', 'xl')}cr`}
+              ~{costRange}
             </Text>
           </View>
         </ScrollView>
