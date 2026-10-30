@@ -25,6 +25,12 @@ export function routeForPush(data: PushData | undefined): string {
     case 'published':
     case 'scheduled_agent_ran':
       return projectId ? `/project/${projectId}` : '/notifications';
+    // Visitor error on a live app: the project screen shows the Fix it banner.
+    case 'app_error':
+      return projectId ? `/project/${projectId}` : '/notifications';
+    // New pinned feedback: straight to the comments.
+    case 'preview_comment':
+      return projectId ? `/feedback/${projectId}` : '/notifications';
     case 'credits_low':
       return '/paywall';
     case 'referral':
