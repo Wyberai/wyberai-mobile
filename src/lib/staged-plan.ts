@@ -21,7 +21,9 @@ export interface StagedPlan {
 }
 
 // Apps with fewer than this many files generate in one shot (no staging).
-export const STAGE_THRESHOLD = 4
+// Set very high to force one-shot for all builds, same as web (502b513) while
+// the staged pipeline is unstable.
+export const STAGE_THRESHOLD = 999
 // Files per fill batch. Each fill pass gets a 24,000-token budget on Opus
 // (see generate/route.ts's stageMaxTokens) — comfortable headroom for 2
 // typical component files, which is why this was set conservatively low.
