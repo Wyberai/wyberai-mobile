@@ -165,6 +165,10 @@ export default function BuildScreen() {
   const { user, credits, refreshCredits } = useSession();
 
   const [name, setName] = useState('');
+  // A message typed while the AI is working: shown as an 'Up next' chip and
+  // sent when the current job finishes (Stop hands the text back to the box).
+  const [queued, setQueued] = useState<string | null>(null);
+  const queuedRef = useRef<string | null>(null);
   const [type, setType] = useState<ProjectType>('web');
   const [files, setFiles] = useState<FileMap>({});
   const filesRef = useRef(files);
@@ -1264,6 +1268,15 @@ export default function BuildScreen() {
     [runDepGateCheck, run],
   );
 
+  const queueMessage = useCallback((text: string) => {
+    const q = text.trim();
+    if (!q) return;
+    tap();
+    queuedRef.current = q;
+    setQueued(q);
+    setInput('');
+  }, []);
+
   const dispatchTurn = useCallback(
     async (text: string) => {
       if (!id || !user?.id || busy || chatBusy || runningRef.current || chatRunningRef.current || !text.trim()) return;
@@ -1298,6 +1311,19 @@ export default function BuildScreen() {
     },
     [id, user?.id, busy, chatBusy, files, runChat, proceedToBuild],
   );
+
+  // Run the queued message once the current job is done. Deferred so the state
+  // writes happen in a callback, not synchronously in the effect.
+  useEffect(() => {
+    if (busy || chatBusy || !queuedRef.current) return;
+    const q = queuedRef.current;
+    queuedRef.current = null;
+    const timer = setTimeout(() => {
+      setQueued(null);
+      void dispatchTurn(q);
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [busy, chatBusy, dispatchTurn]);
 
   const saveSecretsAndBuild = useCallback(async () => {
     if (!pendingGenArgs) return;
@@ -1334,6 +1360,11 @@ export default function BuildScreen() {
     handleRef.current?.abort();
     handleRef.current = null;
     runningRef.current = false;
+    if (queuedRef.current) {
+      setInput(queuedRef.current);
+      queuedRef.current = null;
+      setQueued(null);
+    }
     setBusy(false);
     setMessages((m) =>
       m.map((x) =>
@@ -1899,6 +1930,20 @@ export default function BuildScreen() {
       )}
 
       {planState === 'none' && (
+      <>
+      {queued ? (
+        <View style={styles.queuedChip}>
+          <Text style={styles.queuedLabel}>Up next</Text>
+          <Text style={styles.queuedText} numberOfLines={1}>{queued}</Text>
+          <Pressable
+            onPress={() => { queuedRef.current = null; setQueued(null); }}
+            hitSlop={8}
+            accessibilityLabel="Remove queued message"
+          >
+            <Ionicons name="close" size={14} color={brand.textMuted} />
+          </Pressable>
+        </View>
+      ) : null}
       <View style={styles.inputBar}>
         <Pressable onPress={pickImage} disabled={busy || chatBusy} hitSlop={8} style={styles.cameraBtn}>
           <Ionicons name="camera-outline" size={22} color={busy || chatBusy ? brand.textFaint : brand.textMuted} />
@@ -1914,11 +1959,11 @@ export default function BuildScreen() {
           value={input}
           onChangeText={setInput}
           multiline
-          editable={!busy && !chatBusy}
+          editable={!chatBusy}
         />
         <MicButton value={input} onChangeText={setInput} disabled={busy || chatBusy} size={40} />
         <Pressable
-          onPress={busy ? cancel : () => dispatchTurn(input)}
+          onPress={busy ? (input.trim() ? () => queueMessage(input) : cancel) : () => dispatchTurn(input)}
           disabled={chatBusy || (!busy && !input.trim())}
           accessibilityLabel={busy ? t('cancelBuild') : t('send')}
           style={({ pressed }) => [
@@ -1927,7 +1972,7 @@ export default function BuildScreen() {
             pressed && styles.sendPressed,
           ]}
         >
-          {busy ? (
+          {busy && !input.trim() ? (
             <Ionicons name="stop" size={18} color={brand.onAccent} />
           ) : chatBusy ? (
             <ActivityIndicator color={brand.onAccent} size="small" />
@@ -1936,6 +1981,7 @@ export default function BuildScreen() {
           )}
         </Pressable>
       </View>
+      </>
       )}
 
       <BottomSheet
@@ -2463,6 +2509,21 @@ const styles = StyleSheet.create({
   tierPillDisabled: { opacity: 0.55 },
   tierPillText: { color: brand.textMuted, fontSize: 11.5, fontWeight: '600' },
   tierPillTextActive: { color: brand.onAccent },
+  queuedChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.sm,
+    marginHorizontal: space.md,
+    marginBottom: space.xs,
+    paddingHorizontal: space.md,
+    paddingVertical: 6,
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    borderColor: brand.border,
+    backgroundColor: brand.surface,
+  },
+  queuedLabel: { color: brand.accent, fontSize: 11, fontWeight: '800' },
+  queuedText: { color: brand.textMuted, fontSize: 12.5, flex: 1 },
   costChip: {
     flexDirection: 'row',
     alignItems: 'center',
