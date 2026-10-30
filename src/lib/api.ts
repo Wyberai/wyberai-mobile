@@ -1943,3 +1943,23 @@ export async function resolveFeedback(id: string, resolved: boolean): Promise<vo
 export async function deleteFeedback(id: string): Promise<void> {
   await authedJson(`/api/preview-comments?id=${id}`, { method: 'DELETE' });
 }
+
+// ── Visitor errors on a published app (web LiveErrorsBanner) ──
+export type LiveErrorAlert = {
+  id: string;
+  created_at: string;
+  payload: { message: string; stack?: string; path?: string; count?: number; lastSeen?: string };
+};
+
+export async function fetchLiveErrors(projectId: string): Promise<LiveErrorAlert[]> {
+  try {
+    const data = await authedJson<{ errors?: LiveErrorAlert[] }>(`/api/app-errors?projectId=${encodeURIComponent(projectId)}`);
+    return Array.isArray(data.errors) ? data.errors : [];
+  } catch {
+    return [];
+  }
+}
+
+export async function markNotificationRead(id: string): Promise<void> {
+  await authedJson('/api/notifications', { method: 'PATCH', body: { id } }).catch(() => {});
+}

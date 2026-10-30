@@ -22,6 +22,7 @@ import { tap, warn } from '@/lib/haptics';
 import { useToast } from '@/components/Toast';
 import { Spinner } from '@/components/Spinner';
 import { WebsiteLaunchChecklist } from '@/components/WebsiteLaunchChecklist';
+import { LiveErrorsBanner } from '@/components/LiveErrorsBanner';
 import { PreviewActivityCard } from '@/components/PreviewActivityCard';
 import { BottomSheet } from '@/components/BottomSheet';
 import { DomainSheet } from '@/components/DomainSheet';
@@ -306,6 +307,13 @@ export default function ProjectDetail() {
           )}
           {project.description ? (
             <Text style={styles.desc}>{project.description}</Text>
+          ) : null}
+
+          {live ? (
+            <LiveErrorsBanner
+              projectId={project.id}
+              onFix={(fixPrompt) => router.push(`/build/${project.id}?prompt=${encodeURIComponent(fixPrompt)}` as Href)}
+            />
           ) : null}
 
           {project.project_type === 'website' ? (
