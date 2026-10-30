@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Linking, Pressable, ScrollView, Share, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Stack, useLocalSearchParams } from 'expo-router';
 import { Image } from 'expo-image';
 import * as Clipboard from 'expo-clipboard';
+import * as Sharing from 'expo-sharing';
 import QRCode from 'react-native-qrcode-svg';
 import { supabase } from '@/lib/supabase';
 import { API_BASE, fetchLaunchKit, type LaunchKitPosts } from '@/lib/api';
@@ -36,6 +37,7 @@ export default function LaunchKitScreen() {
   const [channel, setChannel] = useState<Channel>('whatsapp');
   const [writing, setWriting] = useState(false);
   const [error, setError] = useState('');
+  const qrRef = useRef<{ toDataURL: (cb: (data: string) => void) => void } | null>(null);
 
   useEffect(() => {
     if (!id) return;
@@ -94,6 +96,30 @@ export default function LaunchKitScreen() {
     producthunt: { href: 'https://www.producthunt.com/posts/new', copyFirst: true, cta: 'Copy & open Product Hunt' },
   };
 
+  // Mobile-only: hand the QR / share card to the system sheet so it can be saved
+  // to Photos, sent on WhatsApp, or printed at a shop.
+  async function shareQr() {
+    tap();
+    const FileSystem = await import('expo-file-system/legacy');
+    qrRef.current?.toDataURL(async (b64) => {
+      try {
+        const path = `${FileSystem.cacheDirectory}${slug || 'app'}-qr.png`;
+        await FileSystem.writeAsStringAsync(path, b64, { encoding: FileSystem.EncodingType.Base64 });
+        await Sharing.shareAsync(path, { mimeType: 'image/png' });
+      } catch { showToast('Could not share the QR'); }
+    });
+  }
+
+  async function shareCard() {
+    tap();
+    try {
+      const FileSystem = await import('expo-file-system/legacy');
+      const path = `${FileSystem.cacheDirectory}${slug}-share-card.png`;
+      await FileSystem.downloadAsync(`${API_BASE}/api/og/app/${slug}`, path);
+      await Sharing.shareAsync(path, { mimeType: 'image/png' });
+    } catch { showToast('Could not share the card'); }
+  }
+
   async function copy() {
     await Clipboard.setStringAsync(text);
     showToast('Copied');
@@ -113,19 +139,21 @@ export default function LaunchKitScreen() {
           <View style={{ gap: space.sm }}>
             <Image source={{ uri: `${API_BASE}/api/og/app/${slug}` }} style={styles.card} contentFit="cover" />
             <Text style={styles.hint}>The share card is what people see when your link is shared.</Text>
+            <Pressable onPress={shareCard} style={styles.ghost}><Text style={styles.ghostText}>Save or send share card</Text></Pressable>
           </View>
         ) : null}
 
         <View style={styles.qrRow}>
           <View style={styles.qrBox}>
-            <QRCode value={liveUrl} size={120} backgroundColor="#ffffff" color="#0b0b0e" />
+            <QRCode value={liveUrl} size={120} backgroundColor="#ffffff" color="#0b0b0e" getRef={(c) => { qrRef.current = c; }} />
           </View>
           <View style={{ flex: 1, gap: space.sm }}>
             <Text style={styles.sectionTitle}>Counter QR</Text>
             <Text style={styles.hint}>Show this on a counter, poster or at an event. It opens your app.</Text>
-            <Pressable onPress={() => Share.share({ message: liveUrl, url: liveUrl }).catch(() => {})} style={styles.ghost}>
-              <Text style={styles.ghostText}>Share link</Text>
-            </Pressable>
+            <View style={{ flexDirection: 'row', gap: space.sm, flexWrap: 'wrap' }}>
+              <Pressable onPress={shareQr} style={styles.ghost}><Text style={styles.ghostText}>Save or send QR</Text></Pressable>
+              <Pressable onPress={() => Share.share({ message: liveUrl, url: liveUrl }).catch(() => {})} style={styles.ghost}><Text style={styles.ghostText}>Share link</Text></Pressable>
+            </View>
           </View>
         </View>
 
