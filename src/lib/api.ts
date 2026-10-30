@@ -763,6 +763,7 @@ export async function fetchPlanManifest(
   projectType: ProjectType,
   userId: string,
   projectId: string,
+  maxPlannedFiles?: number,
 ): Promise<PlanManifestResult> {
   try {
     const token = await accessToken();
@@ -773,7 +774,7 @@ export async function fetchPlanManifest(
           'Content-Type': 'application/json',
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
-        body: JSON.stringify({ prompt, stage: 'plan', projectType, userId, projectId, isFirstBuild: true }),
+        body: JSON.stringify({ prompt, stage: 'plan', projectType, userId, projectId, isFirstBuild: true, ...(maxPlannedFiles ? { maxPlannedFiles } : {}) }),
       }),
       30_000,
       'Planning the build',

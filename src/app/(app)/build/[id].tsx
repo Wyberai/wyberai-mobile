@@ -39,6 +39,7 @@ import {
   creditWallDetail,
   streamAssist,
   fetchPlanManifest,
+  fetchAccount,
   toFileContext,
   exportProjectZip,
   getGithubRepoStatus,
@@ -53,11 +54,11 @@ import {
   type ProjectType,
   type Suggestion,
 } from '@/lib/api';
-import { buildStagedPlan, forgeLine, pickRouterFile, type PlannedFile } from '@/lib/staged-plan';
+import { buildStagedPlan, capPlannedFiles, forgeLine, pickRouterFile, type PlannedFile } from '@/lib/staged-plan';
 import { classifyIntent } from '@/lib/intent';
 import { windowedHistory } from '@/lib/chat-history-window';
 import { detectDeps, detectRegulated, type RegulatedDomain } from '@/lib/detect-deps';
-import { creditCost } from '@/lib/credits';
+import { creditCost, largestAffordableSmallerBuild, resolveBuildTier } from '@/lib/credits';
 import * as Sharing from 'expo-sharing';
 import * as StoreReview from 'expo-store-review';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -153,6 +154,10 @@ type Msg =
       status?: 'error';
       retryPrompt?: string;
       retryLane?: 'build' | 'chat';
+      // First-build credit wall: the full app costs more than the balance, so
+      // offer a core-screens version the balance covers (web: simpleBuildOffer).
+      creditWall?: boolean;
+      simpleBuildOffer?: { prompt: string; maxFiles: number; cost: number };
     }
   | { id: string; role: 'suggestions'; items: Suggestion[] };
 
@@ -538,7 +543,7 @@ export default function BuildScreen() {
   // same one-shot 'full' request this always used to send. The plan pass
   // can't see an attached photo, so an image-attached build always takes the
   // one-shot path too — same rule the web app follows.
-  const runStagedBuild = useCallback(async (prompt: string, aId: string, history: { role: string; content: string }[], userMsgText: string, myGen: number) => {
+  const runStagedBuild = useCallback(async (prompt: string, aId: string, history: { role: string; content: string }[], userMsgText: string, myGen: number, simple?: { maxFiles: number }) => {
     handleRef.current = { abort: () => activeHandlesRef.current.forEach((h) => h.abort()) };
     // A staged build has several sleeps between checks and the next network
     // fire (backoff before a retry, stagger before a fill batch). Checking
@@ -583,6 +588,10 @@ export default function BuildScreen() {
       );
     };
 
+    // The one-shot build reads the prompt, not the plan, so a simpler version
+    // spells the capped file list into it (set below once the plan is known).
+    let effectivePrompt = prompt;
+
     const fireStage = (
       stageOpts: {
         stage?: 'scaffold' | 'fill' | 'wire';
@@ -597,7 +606,7 @@ export default function BuildScreen() {
     ): Promise<{ ok: boolean; changed: string[]; chatText: string }> =>
       new Promise((resolve) => {
         const h = streamGenerate(
-          { prompt, projectId: id!, userId: user!.id, projectType: type, files: filesRef.current, history, buildId, ...stageOpts },
+          { prompt: effectivePrompt, projectId: id!, userId: user!.id, projectType: type, files: filesRef.current, history, buildId, ...stageOpts },
           {
             onText: (full) => paintBubble(full, showText ? cleanStreamingDisplay(full) : undefined),
             onDone: (full) => {
@@ -675,10 +684,48 @@ export default function BuildScreen() {
       // falling back to the one-shot build (transient API blips are common
       // enough on a single shot that giving up on staging entirely after one
       // miss would needlessly lose the reliable path).
-      let manifestResult = await fetchPlanManifest(prompt, type, user!.id, id!);
-      if (!manifestResult.files.length) manifestResult = await fetchPlanManifest(prompt, type, user!.id, id!);
-      const staged = manifestResult.files.length ? buildStagedPlan(manifestResult.files) : null;
+      let manifestResult = await fetchPlanManifest(prompt, type, user!.id, id!, simple?.maxFiles);
+      if (!manifestResult.files.length) manifestResult = await fetchPlanManifest(prompt, type, user!.id, id!, simple?.maxFiles);
+      let plannedFiles = manifestResult.files;
+      if (simple) {
+        plannedFiles = capPlannedFiles(plannedFiles, simple.maxFiles);
+        // Without a plan the fallback would one-shot the FULL request — the
+        // opposite of what was just chosen. Stop; nothing has been charged.
+        if (!plannedFiles.length) throw new Error("I couldn't plan the simpler version just now. Nothing was charged. Please try again in a moment.");
+        effectivePrompt = `${prompt}\n\nSIMPLER VERSION: the user chose a simple build that fits their credits. Build ONLY these files: ${plannedFiles.map((f) => `${f.path} (${f.purpose})`).join('; ')}. Leave every other feature out entirely; do not add placeholder screens or nav links for them.`;
+      }
+      const staged = plannedFiles.length ? buildStagedPlan(plannedFiles) : null;
       const buildComplexity = manifestResult.buildComplexity;
+
+      // First-build credit wall: quote what the server will actually charge
+      // BEFORE spending anything, and offer a simpler app the balance covers.
+      if (!simple && plannedFiles.length) {
+        const oneShot = !staged || !staged.shouldStage;
+        const tier = oneShot
+          ? resolveBuildTier({ isComplex: buildComplexity === 'HIGH' })
+          : resolveBuildTier({ totalPlannedFiles: plannedFiles.length });
+        const action = type === 'mobile' ? 'mobile-build' : type === 'website' ? 'website-build' : type === 'saas' ? 'saas-build' : 'web-build';
+        const cost = creditCost(action, 'fast', tier);
+        const balance = await fetchAccount().then((a) => a.credits).catch(() => null);
+        if (balance !== null && cost > balance) {
+          if (isStale()) return;
+          const smallCost = creditCost(action, 'fast', 'small');
+          const offer = oneShot
+            ? (tier !== 'small' && smallCost <= balance ? { maxFiles: 10, cost: smallCost } : null)
+            : largestAffordableSmallerBuild(action, tier, balance);
+          const text = offer
+            ? `This is a bigger app (${plannedFiles.length} files planned), so the full version costs ${cost} credits and you have ${balance}.\n\nI can build a simpler version instead: just the core screens (up to ${offer.maxFiles} files) for ${offer.cost} credits. Or add credits to build everything you asked for.`
+            : `This build costs ${cost} credits and you have ${balance}. Add credits, or describe something smaller and I'll check again.`;
+          setMessages((m) =>
+            m.map((x) =>
+              x.id === aId && x.role === 'assistant'
+                ? { ...x, text, streaming: false, status: 'error', creditWall: true, simpleBuildOffer: offer ? { prompt, ...offer } : undefined }
+                : x,
+            ),
+          );
+          return;
+        }
+      }
 
       if (isStale()) return;
 
@@ -833,7 +880,7 @@ export default function BuildScreen() {
   }, [id, user, type, t, refreshCredits, autoPreview, router]);
 
   const run = useCallback(
-    (promptText: string, displayText?: string, opts?: { consumeImage?: boolean; skipUserEcho?: boolean; isAutoFix?: boolean }) => {
+    (promptText: string, displayText?: string, opts?: { consumeImage?: boolean; skipUserEcho?: boolean; isAutoFix?: boolean; maxFiles?: number }) => {
       // chatBusy/chatRunningRef included here (not just in dispatchTurn's
       // guard) because run() has other entry points that bypass dispatchTurn
       // entirely — the self-heal timer and its "Try again" banner button,
@@ -923,7 +970,7 @@ export default function BuildScreen() {
       // never got wired up. Attachments skip staging same as web: the plan
       // pass never sees them, so its manifest would be a blind guess.
       if (AGENT_TEAM_ENABLED && !image && !attachedText && !documents && Object.keys(files).length === 0) {
-        runStagedBuild(prompt, aId, history, userMsg.text, myGen);
+        runStagedBuild(prompt, aId, history, userMsg.text, myGen, opts?.maxFiles ? { maxFiles: opts.maxFiles } : undefined);
         return;
       }
 
@@ -1213,6 +1260,16 @@ export default function BuildScreen() {
   // re-sends the exact prompt that failed through whichever lane it
   // originally took, `skipUserEcho` so the user's message doesn't appear a
   // second time (it's already visible above the failed assistant bubble).
+  const handleSimpleBuild = useCallback(
+    (msg: Msg) => {
+      if (msg.role !== 'assistant' || !msg.simpleBuildOffer) return;
+      const offer = msg.simpleBuildOffer;
+      setMessages((m) => m.map((x) => (x.id === msg.id && x.role === 'assistant' ? { ...x, simpleBuildOffer: undefined } : x)));
+      run(offer.prompt, undefined, { skipUserEcho: true, maxFiles: offer.maxFiles });
+    },
+    [run],
+  );
+
   const handleRetry = useCallback(
     (msg: Msg) => {
       if (msg.role !== 'assistant' || !msg.retryPrompt) return;
@@ -1740,7 +1797,7 @@ export default function BuildScreen() {
               </Text>
             </View>
           }
-          renderItem={({ item }) => <MessageBubble msg={item} onPickSuggestion={onPickSuggestion} onRetry={handleRetry} />}
+          renderItem={({ item }) => <MessageBubble msg={item} onPickSuggestion={onPickSuggestion} onRetry={handleRetry} onSimpleBuild={handleSimpleBuild} onBuyCredits={() => router.push('/paywall')} />}
         />
       )}
 
@@ -2243,10 +2300,14 @@ function MessageBubble({
   msg,
   onPickSuggestion,
   onRetry,
+  onSimpleBuild,
+  onBuyCredits,
 }: {
   msg: Msg;
   onPickSuggestion: (s: Suggestion) => void;
   onRetry: (msg: Msg) => void;
+  onSimpleBuild: (msg: Msg) => void;
+  onBuyCredits: () => void;
 }) {
   if (msg.role === 'user') {
     return (
@@ -2317,6 +2378,16 @@ function MessageBubble({
           >
             <Ionicons name="copy-outline" size={13} color={brand.textFaint} />
           </Pressable>
+          {msg.creditWall && msg.simpleBuildOffer ? (
+            <Pressable onPress={() => { tap(); onSimpleBuild(msg); }} style={styles.retryChip}>
+              <Text style={styles.retryChipText}>Build simpler version · {msg.simpleBuildOffer.cost} credits</Text>
+            </Pressable>
+          ) : null}
+          {msg.creditWall ? (
+            <Pressable onPress={() => { tap(); onBuyCredits(); }} style={styles.retryChip}>
+              <Text style={styles.retryChipText}>Add credits</Text>
+            </Pressable>
+          ) : null}
           {msg.status === 'error' && msg.retryPrompt ? (
             <Pressable onPress={() => { tap(); onRetry(msg); }} style={styles.retryChip}>
               <Ionicons name="refresh" size={13} color={brand.accent} />

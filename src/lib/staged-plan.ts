@@ -217,3 +217,22 @@ export function forgeLine(batch: PlannedFile[], phase: 'scaffold' | 'fill'): str
   const name = batch[0].path.split('/').pop()?.replace(/\.(tsx|jsx|ts|js)$/, '') || 'feature'
   return `Building ${name}`
 }
+
+/**
+ * Caps a plan to `max` files for the "simpler version" first build. Entry
+ * files (App.*, index.*, main.*) always survive — some layouts list them last
+ * and a plan without its entry file builds nothing. Original order is kept.
+ */
+export function capPlannedFiles(files: PlannedFile[], max: number): PlannedFile[] {
+  if (files.length <= max) return files
+  const isEntry = (p: string) => {
+    const base = p.toLowerCase().split('/').pop() ?? ''
+    return base.startsWith('app.') || base.startsWith('index.') || base.startsWith('main.')
+  }
+  const keep = new Set(files.filter((f) => isEntry(f.path)).slice(0, max))
+  for (const f of files) {
+    if (keep.size >= max) break
+    keep.add(f)
+  }
+  return files.filter((f) => keep.has(f))
+}

@@ -24,6 +24,7 @@ export type ActionType =
   | 'saas-build'
   | 'plan'
   | 'security-scan'
+  | 'seo-scan'
   | 'agent-create'
   | 'agent-run'
   | 'workflow-create'
@@ -64,7 +65,8 @@ const BASE_COSTS: Record<ActionType, number> = {
   'website-build':     30,
   'saas-build':        30,
   'plan':               5,
-  'security-scan':     10,
+  'security-scan':    100,
+  'seo-scan':         100,
   'agent-create':       5,
   'agent-run':          5,
   'workflow-create':    2,
@@ -93,10 +95,10 @@ const BUILD_ACTIONS: ActionType[] = ['web-build', 'mobile-build', 'website-build
  * from (Atlas's plan pass).
  */
 const BUILD_TIER_COSTS: Record<BuildSizeTier, { fast: number; default: number }> = {
-  small:  { fast: 15, default: 25 },
-  medium: { fast: 25, default: 45 },
-  large:  { fast: 40, default: 80 },
-  xl:     { fast: 60, default: 130 },
+  small:  { fast: 30, default: 50 },
+  medium: { fast: 50, default: 90 },
+  large:  { fast: 80, default: 160 },
+  xl:     { fast: 120, default: 260 },
 }
 
 /**
@@ -116,14 +118,34 @@ export function resolveBuildTier(opts: { totalPlannedFiles?: number; isComplex?:
   return isComplex ? 'large' : 'small'
 }
 
+/** Largest planned-file count each tier covers — the inverse of resolveBuildTier. */
+const BUILD_TIER_MAX_FILES: Record<Exclude<BuildSizeTier, 'xl'>, number> = { small: 4, medium: 10, large: 20 }
+const BUILD_TIER_ORDER: BuildSizeTier[] = ['small', 'medium', 'large', 'xl']
+
+/**
+ * For the first-build credit wall: the biggest build SMALLER than the planned
+ * one that the balance already covers, at the normal price for that size.
+ * null when not even the smallest fits. Mirrors the web helper of the same name.
+ */
+export function largestAffordableSmallerBuild(
+  action: ActionType, plannedTier: BuildSizeTier, credits: number,
+): { tier: BuildSizeTier; maxFiles: number; cost: number } | null {
+  const below = BUILD_TIER_ORDER.slice(0, BUILD_TIER_ORDER.indexOf(plannedTier)) as Exclude<BuildSizeTier, 'xl'>[]
+  for (let i = below.length - 1; i >= 0; i--) {
+    const tier = below[i]
+    const cost = creditCost(action, 'fast', tier)
+    if (cost <= credits) return { tier, maxFiles: BUILD_TIER_MAX_FILES[tier], cost }
+  }
+  return null
+}
+
 /**
  * Compute the credit cost for an action + model tier.
  * Always at least 1 credit.
  */
 export function creditCost(action: ActionType, tier: ModelTier = 'default', buildTier?: BuildSizeTier): number {
-  // Edits are priced explicitly, not by multiplier. Simple Sonnet edit = the
-  // public 2cr price; Opus-escalated complex edit = 5cr.
-  if (action === 'small-edit') return tier === 'fast' ? 2 : 5
+  // Edits are priced explicitly, not by multiplier (web: 4cr fast / 10cr default).
+  if (action === 'small-edit') return tier === 'fast' ? 4 : 10
   // Tiered build pricing — only applies when the caller resolved a size tier;
   // omitting buildTier falls through to the flat price below.
   if (buildTier && BUILD_ACTIONS.includes(action)) {
@@ -132,7 +154,7 @@ export function creditCost(action: ActionType, tier: ModelTier = 'default', buil
   }
   // hero-image-gen/audio-gen/preview-access call an image/TTS provider or
   // aren't a model call at all — MODEL_MULTIPLIERS tier scaling doesn't apply.
-  if (action === 'hero-image-gen' || action === 'audio-gen' || action === 'preview-access') return BASE_COSTS[action]
+  if (action === 'hero-image-gen' || action === 'audio-gen' || action === 'preview-access' || action === 'security-scan' || action === 'seo-scan') return BASE_COSTS[action]
   const base = BASE_COSTS[action]
   const multiplier = MODEL_MULTIPLIERS[tier]
   return Math.max(1, Math.round(base * multiplier))
