@@ -15,7 +15,8 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { CONNECTORS, connectorConnected, type Connector } from '@/lib/connectors';
-import { listSecretNames, saveSecret } from '@/lib/api';
+import { listSecretNames, saveSecret, type FileMap } from '@/lib/api';
+import { GoLiveChecklist } from '@/components/GoLiveChecklist';
 import { tap, success } from '@/lib/haptics';
 import { useT } from '@/lib/i18n/useT';
 import { CONNECTORS_SHEET_STRINGS } from '@/lib/i18n/dict/connectors-sheet';
@@ -24,16 +25,22 @@ import { brand, font, radius, space } from '@/lib/theme';
 // Add an integration to the current build from the phone: pick a service, drop
 // in its API key(s) → saved to the vault → the connector's prompt is sent to the
 // builder so the AI wires it in. Mirrors the web ConnectorsPanel (key-based
-// connectors only; Supabase/OAuth deferred). `onRun` hands the prompt to the
+// connectors only; Supabase has its own screen). `onRun` hands the prompt to the
 // builder's existing run().
 export function ConnectorsSheet({
   visible,
   onClose,
   onRun,
+  projectId,
+  projectName,
+  files,
 }: {
   visible: boolean;
   onClose: () => void;
   onRun: (prompt: string) => void;
+  projectId?: string;
+  projectName?: string;
+  files?: FileMap;
 }) {
   const insets = useSafeAreaInsets();
   const t = useT(CONNECTORS_SHEET_STRINGS);
@@ -180,6 +187,9 @@ export function ConnectorsSheet({
           </ScrollView>
         ) : (
           <ScrollView contentContainerStyle={styles.list} keyboardShouldPersistTaps="handled">
+            {projectId ? (
+              <GoLiveChecklist projectId={projectId} projectName={projectName} files={files ?? {}} visible={visible} />
+            ) : null}
             {filtered.map((c) => {
               const connected = connectorConnected(c, vault);
               return (

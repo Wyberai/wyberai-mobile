@@ -398,6 +398,38 @@ export async function publishProject(projectId: string, override = false): Promi
   return { ok: true, publishedUrl: data.publishedUrl, subdomain: data.subdomain ?? '' };
 }
 
+/**
+ * Go-live deploy (mirrors web GoLiveChecklist → POST /api/deploy): puts the app
+ * live with the owner's saved settings passed as environment variables. The
+ * server picks the owner from the signed-in session, never from the body.
+ */
+export async function deployProject(
+  projectId: string,
+  files: FileMap,
+  projectName: string,
+): Promise<{ ok: true; url: string } | { ok: false; error: string }> {
+  const token = await accessToken();
+  try {
+    const res = await withTimeout(
+      fetch(`${API_BASE}/api/deploy`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ projectId, files, projectName: projectName || 'wyber-app' }),
+      }),
+      240_000,
+      'Deploying',
+    );
+    const data = (await res.json().catch(() => ({}))) as { url?: string; error?: string; message?: string };
+    if (data.url) return { ok: true, url: data.url };
+    return { ok: false, error: data.error || data.message || `Deploy failed (${res.status})` };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : 'Deploy failed.' };
+  }
+}
+
 /** Permanently delete the signed-in user's account and all their data. */
 export async function deleteAccount(): Promise<void> {
   const token = await accessToken();
@@ -1465,7 +1497,21 @@ export async function removeCollaborator(projectId: string, collaboratorId: stri
 
 // ── SEO checks ───────────────────────────────────────────────────────────────
 export type SeoCheck = { id: string; label: string; status: 'pass' | 'warn' | 'fail'; detail: string };
-export type SeoReport = { score: number; checks: SeoCheck[]; scannedAt: string };
+export type SeoReport = {
+  score: number;
+  checks: SeoCheck[];
+  scannedAt: string;
+  cost?: number;
+  creditsRemaining?: number;
+  fixedFiles?: Record<string, string>;
+  fixedCheckIds?: string[];
+};
+
+/** project_type of one of the signed-in user's projects (drives the Marketing Beast set). */
+export async function loadProjectType(projectId: string): Promise<string | undefined> {
+  const { data } = await supabase.from('projects').select('project_type').eq('id', projectId).maybeSingle();
+  return (data?.project_type as string | undefined) ?? undefined;
+}
 
 export async function runSeoScan(projectId: string): Promise<SeoReport> {
   const token = await accessToken();
@@ -1962,4 +2008,136 @@ export async function fetchLiveErrors(projectId: string): Promise<LiveErrorAlert
 
 export async function markNotificationRead(id: string): Promise<void> {
   await authedJson('/api/notifications', { method: 'PATCH', body: { id } }).catch(() => {});
+}
+
+// ── Launch readiness + founder checklist (web Security tab parity) ──────────
+export type ReadinessSeverity = 'critical' | 'high' | 'medium' | 'good';
+export type ReadinessCheck = { id: string; label: string; severity: ReadinessSeverity; detail: string; fix?: string };
+export type ReadinessReport = { scannedAt: string; score: number; checks: ReadinessCheck[]; passed: number; total: number };
+export type ReadinessScan = { id: string; score: number; critical_count: number; source: string; created_at: string };
+
+/** Same rule as web's isLaunchReady (src/lib/launch-readiness.ts). */
+export function isLaunchReady(report: Pick<ReadinessReport, 'score' | 'checks'>): boolean {
+  return report.score >= 85 && !report.checks.some((c) => c.severity === 'critical');
+}
+
+export async function runLaunchReadiness(projectId: string): Promise<ReadinessReport> {
+  return await authedJson<ReadinessReport>('/api/security/launch-readiness', { method: 'POST', body: { projectId } });
+}
+
+export async function fetchLaunchReadinessHistory(projectId: string): Promise<ReadinessScan[]> {
+  try {
+    const d = await authedJson<{ scans?: ReadinessScan[] }>(`/api/security/launch-readiness?projectId=${encodeURIComponent(projectId)}`);
+    return Array.isArray(d.scans) ? d.scans : [];
+  } catch {
+    return [];
+  }
+}
+
+export async function fetchLaunchChecklist(projectId: string): Promise<import('./launch-checklist').ChecklistState> {
+  try {
+    const d = await authedJson<{ items?: import('./launch-checklist').ChecklistState }>(`/api/security/launch-checklist?projectId=${encodeURIComponent(projectId)}`);
+    return d.items ?? {};
+  } catch {
+    return {};
+  }
+}
+
+export async function saveLaunchChecklist(projectId: string, items: import('./launch-checklist').ChecklistState): Promise<void> {
+  await authedJson<unknown>('/api/security/launch-checklist', { method: 'POST', body: { projectId, items } });
+}
+
+// ── Security Beast scan, dependency scan, Figma import (web editor parity) ──
+export type BeastScanResult = import('./security-beast-data').BeastScanReport & {
+  cost?: number;
+  creditsRemaining?: number;
+};
+export type DepFinding = { package: string; version: string; id: string; summary: string; severity: 'critical' | 'high' | 'medium' | 'low'; url: string };
+export type DepReport = { packagesScanned: number; packagesSkipped: number; vulnerabilityCount: number; findings: DepFinding[]; scannedAt: string };
+
+/** Paid scan (server charges + validates). Throws the server's message, e.g. the 402 "not enough credits". */
+export async function runBeastScan(projectId: string): Promise<BeastScanResult> {
+  return authedJson<BeastScanResult>('/api/security/beast-scan', { method: 'POST', body: { projectId } });
+}
+
+export async function runDependencyScan(projectId: string): Promise<DepReport> {
+  return authedJson<DepReport>('/api/security/dependency-scan', { method: 'POST', body: { projectId } });
+}
+
+export async function importFromFigma(figmaUrl: string, figmaToken?: string): Promise<{ fileName: string; code: string }> {
+  return authedJson<{ fileName: string; code: string }>('/api/figma-import', {
+    method: 'POST',
+    body: { figmaUrl, ...(figmaToken ? { figmaToken } : {}) },
+  });
+}
+
+/**
+ * Wyberman help chat (web: POST /api/support). A free, unauthenticated,
+ * IP-rate-limited plain-text stream; `onText` receives the full reply so far.
+ */
+export function askSupport(
+  messages: { role: 'user' | 'assistant'; content: string }[],
+  handlers: { onText: (reply: string) => void; onDone: () => void; onError: (message: string) => void },
+): { abort: () => void } {
+  const xhr = new XMLHttpRequest();
+  xhr.open('POST', `${API_BASE}/api/support`);
+  xhr.setRequestHeader('Content-Type', 'application/json');
+  xhr.timeout = 60_000;
+  xhr.onprogress = () => handlers.onText(xhr.responseText);
+  xhr.onload = () => {
+    if (xhr.status === 429) return handlers.onError('Too many questions in a short time. Wait a minute and try again.');
+    if (xhr.status < 200 || xhr.status >= 300) return handlers.onError("Couldn't reach help right now. Try again in a moment.");
+    handlers.onText(xhr.responseText);
+    handlers.onDone();
+  };
+  xhr.onerror = () => handlers.onError("Couldn't reach help right now. Check your connection and try again.");
+  xhr.ontimeout = () => handlers.onError('Help took too long to answer. Try again.');
+  xhr.send(JSON.stringify({ messages }));
+  return {
+    abort: () => {
+      try { xhr.abort(); } catch { /* already finished */ }
+    },
+  };
+}
+
+// ── Supabase connector (manual URL + anon key path of web's SupabaseConnector) ──
+export type SupabaseConnection = { url: string; connected_at: string } | null;
+
+export async function fetchSupabaseConnection(projectId: string): Promise<SupabaseConnection> {
+  try {
+    const d = await authedJson<{ connectors?: { service: string; config?: { url?: string }; connected_at: string }[] }>(
+      `/api/connectors?projectId=${encodeURIComponent(projectId)}`,
+    );
+    const sb = d.connectors?.find((c) => c.service === 'supabase');
+    return sb ? { url: sb.config?.url ?? '', connected_at: sb.connected_at } : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Validates the credentials against the project's REST endpoint first (same check as web), then saves. */
+export async function connectSupabase(projectId: string, url: string, anonKey: string): Promise<void> {
+  const base = url.trim().replace(/\/+$/, '');
+  if (!base.startsWith('https://')) throw new Error('The URL must start with https://');
+  const test = await fetch(`${base}/rest/v1/`, { headers: { apikey: anonKey, Authorization: `Bearer ${anonKey}` } }).catch(() => null);
+  if (!test || (!test.ok && test.status !== 401)) throw new Error("Couldn't connect. Check the URL and anon key.");
+  await authedJson<unknown>('/api/connectors', {
+    method: 'POST',
+    body: {
+      projectId,
+      service: 'supabase',
+      apiKey: anonKey,
+      config: { url: base, project_id: base.split('.')[0].replace('https://', '') },
+    },
+  });
+}
+
+export async function disconnectSupabase(projectId: string): Promise<void> {
+  await authedJson<unknown>('/api/connectors', { method: 'DELETE', body: { projectId, service: 'supabase' } });
+}
+
+/** Current files of a project, read straight from the owner's row (RLS-scoped). */
+export async function loadProjectFiles(projectId: string): Promise<FileMap> {
+  const { data } = await supabase.from('projects').select('files').eq('id', projectId).maybeSingle();
+  return ((data?.files as FileMap | null) ?? {}) as FileMap;
 }

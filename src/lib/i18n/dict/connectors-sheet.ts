@@ -16,7 +16,7 @@ export const CONNECTORS_SHEET_STRINGS: Record<Locale, Record<string, string>> = 
     couldntConnect: "Couldn't connect",
     added: 'Added',
     noIntegrationsMatch: 'No integrations match "{search}".',
-    supabaseFootnote: 'Need Supabase? Connect it from the web editor for now — coming to mobile soon.',
+    supabaseFootnote: 'Need Supabase? Connect it from the Supabase row in the tools of your project.',
   },
   hi: {
     connectors: 'कनेक्टर्स',
@@ -29,7 +29,7 @@ export const CONNECTORS_SHEET_STRINGS: Record<Locale, Record<string, string>> = 
     couldntConnect: 'कनेक्ट नहीं हो सका',
     added: 'जोड़ा गया',
     noIntegrationsMatch: '"{search}" से कोई इंटीग्रेशन मेल नहीं खाता।',
-    supabaseFootnote: 'Supabase चाहिए? अभी इसे वेब एडिटर से कनेक्ट करें — मोबाइल पर जल्द आ रहा है।',
+    supabaseFootnote: 'Supabase चाहिए? इसे अपने प्रोजेक्ट के टूल्स में "Supabase" पंक्ति से कनेक्ट करें।',
   },
   kn: {
     connectors: 'ಕನೆಕ್ಟರ್‌ಗಳು',
@@ -42,7 +42,7 @@ export const CONNECTORS_SHEET_STRINGS: Record<Locale, Record<string, string>> = 
     couldntConnect: 'ಕನೆಕ್ಟ್ ಆಗಲಿಲ್ಲ',
     added: 'ಸೇರಿಸಲಾಗಿದೆ',
     noIntegrationsMatch: '"{search}" ಗೆ ಯಾವುದೇ ಇಂಟಿಗ್ರೇಶನ್ ಹೊಂದಿಕೆಯಾಗುವುದಿಲ್ಲ.',
-    supabaseFootnote: 'Supabase ಬೇಕೇ? ಸದ್ಯಕ್ಕೆ ಇದನ್ನು ವೆಬ್ ಎಡಿಟರ್‌ನಿಂದ ಕನೆಕ್ಟ್ ಮಾಡಿ — ಮೊಬೈಲ್‌ಗೆ ಶೀಘ್ರದಲ್ಲೇ ಬರುತ್ತಿದೆ.',
+    supabaseFootnote: 'Supabase ಬೇಕೇ? ನಿಮ್ಮ ಪ್ರಾಜೆಕ್ಟ್‌ನ ಟೂಲ್ಸ್‌ನಲ್ಲಿರುವ "Supabase" ಸಾಲಿನಿಂದ ಕನೆಕ್ಟ್ ಮಾಡಿ.',
   },
   te: {
     connectors: 'కనెక్టర్‌లు',
@@ -55,7 +55,7 @@ export const CONNECTORS_SHEET_STRINGS: Record<Locale, Record<string, string>> = 
     couldntConnect: 'కనెక్ట్ చేయలేకపోయాము',
     added: 'జోడించబడింది',
     noIntegrationsMatch: '"{search}" కి ఏ ఇంటిగ్రేషన్ సరిపోలలేదు.',
-    supabaseFootnote: 'Supabase కావాలా? ప్రస్తుతానికి దీన్ని వెబ్ ఎడిటర్ నుండి కనెక్ట్ చేయండి — మొబైల్‌కి త్వరలో వస్తుంది.',
+    supabaseFootnote: 'Supabase కావాలా? మీ ప్రాజెక్ట్ టూల్స్‌లోని "Supabase" వరుస నుండి కనెక్ట్ చేయండి.',
   },
   ta: {
     connectors: 'கனெக்டர்கள்',
@@ -68,6 +68,6 @@ export const CONNECTORS_SHEET_STRINGS: Record<Locale, Record<string, string>> = 
     couldntConnect: 'இணைக்க முடியவில்லை',
     added: 'சேர்க்கப்பட்டது',
     noIntegrationsMatch: '"{search}" உடன் பொருந்தும் ஒருங்கிணைப்பு இல்லை.',
-    supabaseFootnote: 'Supabase தேவையா? தற்போதைக்கு அதை வெப் எடிட்டரில் இருந்து இணைக்கவும் — மொபைலுக்கு விரைவில் வருகிறது.',
+    supabaseFootnote: 'Supabase தேவையா? உங்கள் ப்ராஜெக்ட் டூல்ஸில் உள்ள "Supabase" வரிசை மூலம் இணைக்கவும்.',
   },
 };

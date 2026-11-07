@@ -209,6 +209,12 @@ export default function AccountScreen() {
         />
         <View style={styles.divider} />
         <LinkRow
+          icon="help-buoy-outline"
+          label="Ask Wyberman"
+          onPress={() => router.push('/help' as Href)}
+        />
+        <View style={styles.divider} />
+        <LinkRow
           icon="help-circle-outline"
           label={t('helpSupport')}
           onPress={() => Linking.openURL('https://wyberai.com/contact')}

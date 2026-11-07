@@ -2148,6 +2148,9 @@ export default function BuildScreen() {
         visible={connectorsOpen}
         onClose={() => setConnectorsOpen(false)}
         onRun={(prompt) => run(prompt, undefined, { consumeImage: false })}
+        projectId={id}
+        projectName={name}
+        files={files}
       />
 
       <ImagesPanelSheet
