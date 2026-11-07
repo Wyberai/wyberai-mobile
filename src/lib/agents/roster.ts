@@ -28,4 +28,8 @@ export function agentMeta(id: string): AgentMeta {
 }
 
 /** Client flag: agent-team UI + client orchestration. */
-export const AGENT_TEAM_ENABLED = process.env.EXPO_PUBLIC_AGENT_TEAM === 'true'
+// Hard-coded OFF to match web (ChatPanel.tsx: AGENT_TEAM_ENABLED = false since
+// 2026-08-03, single-pass generation). Deliberately NOT env-driven: the release
+// workflow / .env.local used to flip this on, so shipped builds showed the
+// "xyz agent working" feed that web no longer has.
+export const AGENT_TEAM_ENABLED = false

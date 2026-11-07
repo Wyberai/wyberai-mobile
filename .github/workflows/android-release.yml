@@ -125,11 +125,8 @@ jobs:
           # secret) is correct. Unset → empty → IAP stays off (safe default).
           EXPO_PUBLIC_ENABLE_IAP: ${{ vars.EXPO_PUBLIC_ENABLE_IAP }}
           EXPO_PUBLIC_REVENUECAT_ANDROID_KEY: ${{ vars.EXPO_PUBLIC_REVENUECAT_ANDROID_KEY }}
-          # Agent-team live feed (Atlas/Forge/Prism/Sentinel/Verity) — already
-          # built and ported to mobile, just gated off by default. Requires the
-          # web server to also have NEXT_PUBLIC_AGENT_TEAM=true in Vercel prod,
-          # since the client only renders markers the server actually emits.
-          EXPO_PUBLIC_AGENT_TEAM: ${{ vars.EXPO_PUBLIC_AGENT_TEAM }}
+          # Agent-team feed is hard-coded OFF in src/lib/agents/roster.ts (matches web);
+          # no EXPO_PUBLIC_AGENT_TEAM variable is read any more.
           # Sentry DSN is not secret (same threat model as any other client-side
           # analytics key — it can only accept error reports, not read data).
           EXPO_PUBLIC_SENTRY_DSN: ${{ vars.EXPO_PUBLIC_SENTRY_DSN }}

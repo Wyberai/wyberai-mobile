@@ -398,6 +398,38 @@ export async function publishProject(projectId: string, override = false): Promi
   return { ok: true, publishedUrl: data.publishedUrl, subdomain: data.subdomain ?? '' };
 }
 
+/**
+ * Go-live deploy (mirrors web GoLiveChecklist → POST /api/deploy): puts the app
+ * live with the owner's saved settings passed as environment variables. The
+ * server picks the owner from the signed-in session, never from the body.
+ */
+export async function deployProject(
+  projectId: string,
+  files: FileMap,
+  projectName: string,
+): Promise<{ ok: true; url: string } | { ok: false; error: string }> {
+  const token = await accessToken();
+  try {
+    const res = await withTimeout(
+      fetch(`${API_BASE}/api/deploy`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ projectId, files, projectName: projectName || 'wyber-app' }),
+      }),
+      240_000,
+      'Deploying',
+    );
+    const data = (await res.json().catch(() => ({}))) as { url?: string; error?: string; message?: string };
+    if (data.url) return { ok: true, url: data.url };
+    return { ok: false, error: data.error || data.message || `Deploy failed (${res.status})` };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : 'Deploy failed.' };
+  }
+}
+
 /** Permanently delete the signed-in user's account and all their data. */
 export async function deleteAccount(): Promise<void> {
   const token = await accessToken();
