@@ -427,6 +427,13 @@ export default function ProjectDetail() {
             />
             <View style={styles.toolDivider} />
             <ToolRow
+              icon="rocket-outline"
+              label="Launch readiness"
+              hint="Pre-launch scan & founder checklist"
+              onPress={() => navigateOnce(`/launch-readiness/${project.id}` as Href)}
+            />
+            <View style={styles.toolDivider} />
+            <ToolRow
               icon="server-outline"
               label="Database"
               hint="Status & tables"

@@ -1995,3 +1995,40 @@ export async function fetchLiveErrors(projectId: string): Promise<LiveErrorAlert
 export async function markNotificationRead(id: string): Promise<void> {
   await authedJson('/api/notifications', { method: 'PATCH', body: { id } }).catch(() => {});
 }
+
+// ── Launch readiness + founder checklist (web Security tab parity) ──────────
+export type ReadinessSeverity = 'critical' | 'high' | 'medium' | 'good';
+export type ReadinessCheck = { id: string; label: string; severity: ReadinessSeverity; detail: string; fix?: string };
+export type ReadinessReport = { scannedAt: string; score: number; checks: ReadinessCheck[]; passed: number; total: number };
+export type ReadinessScan = { id: string; score: number; critical_count: number; source: string; created_at: string };
+
+/** Same rule as web's isLaunchReady (src/lib/launch-readiness.ts). */
+export function isLaunchReady(report: Pick<ReadinessReport, 'score' | 'checks'>): boolean {
+  return report.score >= 85 && !report.checks.some((c) => c.severity === 'critical');
+}
+
+export async function runLaunchReadiness(projectId: string): Promise<ReadinessReport> {
+  return await authedJson<ReadinessReport>('/api/security/launch-readiness', { method: 'POST', body: { projectId } });
+}
+
+export async function fetchLaunchReadinessHistory(projectId: string): Promise<ReadinessScan[]> {
+  try {
+    const d = await authedJson<{ scans?: ReadinessScan[] }>(`/api/security/launch-readiness?projectId=${encodeURIComponent(projectId)}`);
+    return Array.isArray(d.scans) ? d.scans : [];
+  } catch {
+    return [];
+  }
+}
+
+export async function fetchLaunchChecklist(projectId: string): Promise<import('./launch-checklist').ChecklistState> {
+  try {
+    const d = await authedJson<{ items?: import('./launch-checklist').ChecklistState }>(`/api/security/launch-checklist?projectId=${encodeURIComponent(projectId)}`);
+    return d.items ?? {};
+  } catch {
+    return {};
+  }
+}
+
+export async function saveLaunchChecklist(projectId: string, items: import('./launch-checklist').ChecklistState): Promise<void> {
+  await authedJson<unknown>('/api/security/launch-checklist', { method: 'POST', body: { projectId, items } });
+}

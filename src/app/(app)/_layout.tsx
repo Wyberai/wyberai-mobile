@@ -128,6 +128,7 @@ export default function AppTabsLayout() {
       <Tabs.Screen name="github-settings" options={{ href: null, title: 'GitHub' }} />
       <Tabs.Screen name="import" options={{ href: null, title: 'Import project' }} />
       <Tabs.Screen name="security-scan/[id]" options={{ href: null, title: 'Security Scan' }} />
+      <Tabs.Screen name="launch-readiness/[id]" options={{ href: null, title: 'Launch readiness' }} />
       <Tabs.Screen name="database-status/[id]" options={{ href: null, title: 'Database' }} />
       <Tabs.Screen name="seo/[id]" options={{ href: null, title: 'SEO Check' }} />
       <Tabs.Screen name="collaborators/[id]" options={{ href: null, title: 'Team' }} />

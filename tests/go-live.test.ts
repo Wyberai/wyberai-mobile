@@ -37,3 +37,19 @@ test('planGoLive lists what is missing and what is connected', () => {
 test('planGoLive is empty for an app with no server code', () => {
   assert.deepEqual(planGoLive({ 'src/App.tsx': api('x') }, new Set()), { items: [], other: [], serverFiles: 0 });
 });
+
+// Launch checklist (ported from web's launch-checklist.ts)
+import { CHECKLIST_ITEMS, checklistProgress, sanitizeChecklistState } from '../src/lib/launch-checklist.ts';
+
+test('checklist progress counts only checked known items', () => {
+  const p = checklistProgress({ pricing: { checked: true }, support: { checked: false } });
+  assert.deepEqual(p, { done: 1, total: CHECKLIST_ITEMS.length, complete: false });
+});
+
+test('checklist sanitize drops unknown keys, trims and caps notes', () => {
+  const out = sanitizeChecklistState({ pricing: { checked: 1, note: '  hi  ' }, bogus: { checked: true }, positioning: { checked: true, note: 'x'.repeat(500) } });
+  assert.deepEqual(Object.keys(out).sort(), ['positioning', 'pricing']);
+  assert.equal(out.pricing.checked, true);
+  assert.equal(out.pricing.note, 'hi');
+  assert.equal(out.positioning.note?.length, 280);
+});
