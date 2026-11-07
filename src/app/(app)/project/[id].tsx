@@ -434,6 +434,27 @@ export default function ProjectDetail() {
             />
             <View style={styles.toolDivider} />
             <ToolRow
+              icon="shield-half-outline"
+              label="Security Beast"
+              hint="Code scan & dependency check"
+              onPress={() => navigateOnce(`/security-beast/${project.id}` as Href)}
+            />
+            <View style={styles.toolDivider} />
+            <ToolRow
+              icon="color-palette-outline"
+              label="Import from Figma"
+              hint="Turn a design into a component"
+              onPress={() => navigateOnce(`/figma-import/${project.id}` as Href)}
+            />
+            <View style={styles.toolDivider} />
+            <ToolRow
+              icon="cloud-outline"
+              label="Supabase"
+              hint="Connect your own database"
+              onPress={() => navigateOnce(`/supabase-connect/${project.id}` as Href)}
+            />
+            <View style={styles.toolDivider} />
+            <ToolRow
               icon="server-outline"
               label="Database"
               hint="Status & tables"

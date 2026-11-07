@@ -2032,3 +2032,69 @@ export async function fetchLaunchChecklist(projectId: string): Promise<import('.
 export async function saveLaunchChecklist(projectId: string, items: import('./launch-checklist').ChecklistState): Promise<void> {
   await authedJson<unknown>('/api/security/launch-checklist', { method: 'POST', body: { projectId, items } });
 }
+
+// ── Security Beast scan, dependency scan, Figma import (web editor parity) ──
+export type BeastScanResult = import('./security-beast-data').BeastScanReport & {
+  cost?: number;
+  creditsRemaining?: number;
+};
+export type DepFinding = { package: string; version: string; id: string; summary: string; severity: 'critical' | 'high' | 'medium' | 'low'; url: string };
+export type DepReport = { packagesScanned: number; packagesSkipped: number; vulnerabilityCount: number; findings: DepFinding[]; scannedAt: string };
+
+/** Paid scan (server charges + validates). Throws the server's message, e.g. the 402 "not enough credits". */
+export async function runBeastScan(projectId: string): Promise<BeastScanResult> {
+  return authedJson<BeastScanResult>('/api/security/beast-scan', { method: 'POST', body: { projectId } });
+}
+
+export async function runDependencyScan(projectId: string): Promise<DepReport> {
+  return authedJson<DepReport>('/api/security/dependency-scan', { method: 'POST', body: { projectId } });
+}
+
+export async function importFromFigma(figmaUrl: string, figmaToken?: string): Promise<{ fileName: string; code: string }> {
+  return authedJson<{ fileName: string; code: string }>('/api/figma-import', {
+    method: 'POST',
+    body: { figmaUrl, ...(figmaToken ? { figmaToken } : {}) },
+  });
+}
+
+// ── Supabase connector (manual URL + anon key path of web's SupabaseConnector) ──
+export type SupabaseConnection = { url: string; connected_at: string } | null;
+
+export async function fetchSupabaseConnection(projectId: string): Promise<SupabaseConnection> {
+  try {
+    const d = await authedJson<{ connectors?: { service: string; config?: { url?: string }; connected_at: string }[] }>(
+      `/api/connectors?projectId=${encodeURIComponent(projectId)}`,
+    );
+    const sb = d.connectors?.find((c) => c.service === 'supabase');
+    return sb ? { url: sb.config?.url ?? '', connected_at: sb.connected_at } : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Validates the credentials against the project's REST endpoint first (same check as web), then saves. */
+export async function connectSupabase(projectId: string, url: string, anonKey: string): Promise<void> {
+  const base = url.trim().replace(/\/+$/, '');
+  if (!base.startsWith('https://')) throw new Error('The URL must start with https://');
+  const test = await fetch(`${base}/rest/v1/`, { headers: { apikey: anonKey, Authorization: `Bearer ${anonKey}` } }).catch(() => null);
+  if (!test || (!test.ok && test.status !== 401)) throw new Error("Couldn't connect. Check the URL and anon key.");
+  await authedJson<unknown>('/api/connectors', {
+    method: 'POST',
+    body: {
+      projectId,
+      service: 'supabase',
+      apiKey: anonKey,
+      config: { url: base, project_id: base.split('.')[0].replace('https://', '') },
+    },
+  });
+}
+
+export async function disconnectSupabase(projectId: string): Promise<void> {
+  await authedJson<unknown>('/api/connectors', { method: 'DELETE', body: { projectId, service: 'supabase' } });
+}
+
+/** Current files of a project, read straight from the owner's row (RLS-scoped). */
+export async function loadProjectFiles(projectId: string): Promise<FileMap> {
+  const { data } = await supabase.from('projects').select('files').eq('id', projectId).maybeSingle();
+  return ((data?.files as FileMap | null) ?? {}) as FileMap;
+}
