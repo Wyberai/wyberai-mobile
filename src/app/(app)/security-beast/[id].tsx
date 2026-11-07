@@ -2,16 +2,8 @@ import { useState } from 'react';
 import { ActivityIndicator, Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import {
-  loadProjectFiles,
-  runBeastScan,
-  runDependencyScan,
-  saveFiles,
-  saveVersion,
-  type BeastScanResult,
-  type DepReport,
-  type FileMap,
-} from '@/lib/api';
+import { runBeastScan, runDependencyScan, type BeastScanResult, type DepReport } from '@/lib/api';
+import { applyBeastFixesToProject } from '@/lib/beast-fixes';
 import { creditCost } from '@/lib/credits';
 import { SECURITY_BEAST_CHECKLIST, SECURITY_FIX_PROMPTS, type CheckStatus } from '@/lib/security-beast-data';
 import { tap, success } from '@/lib/haptics';
@@ -21,7 +13,6 @@ import { brand, radius, space } from '@/lib/theme';
 // credit charge shown BEFORE anything runs) and its dependency-vulnerability
 // scan (package.json vs OSV.dev, free). Same endpoints as web.
 
-const LANG: Record<string, string> = { ts: 'typescript', tsx: 'typescript', js: 'javascript', jsx: 'javascript', css: 'css', html: 'html', json: 'json', xml: 'xml', txt: 'plaintext' };
 const STATUS: Record<CheckStatus, { color: string; icon: string }> = {
   pass: { color: brand.success, icon: '✓' },
   warn: { color: '#f59e0b', icon: '!' },
@@ -62,35 +53,22 @@ export default function SecurityBeastScreen() {
   const failing = (report?.checks ?? []).filter((c) => c.status !== 'pass');
   const labelOf = (cid: string) => SECURITY_BEAST_CHECKLIST.find((x) => x.id === cid)?.label ?? cid;
 
-  // Same as web's applyBeastFixes: write the mechanical fixes straight into the
-  // project (snapshot first so Version History can undo), then hand whatever
-  // needs real code judgment to the builder as one prompt.
+  // Same as web's applyBeastFixes: mechanical fixes are written into the project
+  // (after a snapshot, so Version History can undo); the rest goes to the builder.
   async function applyAll() {
     if (!report || !id || applying) return;
     tap();
     setApplying(true);
     try {
-      const fixedFiles = report.fixedFiles ?? {};
-      const fixedIds = new Set(report.fixedCheckIds ?? []);
-      const paths = Object.keys(fixedFiles);
-      if (paths.length > 0) {
-        const current = await loadProjectFiles(id);
-        await saveVersion(id, current, 'Before Security Beast fixes');
-        const next: FileMap = { ...current };
-        for (const p of paths) {
-          const ext = p.split('.').pop() ?? '';
-          next[p] = { content: fixedFiles[p], language: current[p]?.language ?? LANG[ext] ?? 'plaintext' };
-        }
-        await saveFiles(id, next);
-      }
-      const remaining = failing.filter((c) => !fixedIds.has(c.id));
-      const lines = remaining.map((c) => SECURITY_FIX_PROMPTS[c.id]).filter((p): p is string => !!p);
+      const r = await applyBeastFixesToProject({
+        projectId: id,
+        report,
+        snapshotLabel: 'Before Security Beast fixes',
+        promptFor: (cid) => SECURITY_FIX_PROMPTS[cid],
+      });
       success();
-      setApplied(paths.length > 0 ? `Wrote ${paths.length} file${paths.length === 1 ? '' : 's'} into your project.` : 'No automatic fixes were available.');
-      if (lines.length > 0) {
-        const prompt = `Fix the following issues found by a scan. Match this app's existing design system, code style, and framework conventions.\n\n${lines.map((l, i) => `${i + 1}. ${l}`).join('\n')}`;
-        router.push(`/build/${id}?prompt=${encodeURIComponent(prompt)}`);
-      }
+      setApplied(r.filesWritten > 0 ? `Wrote ${r.filesWritten} file${r.filesWritten === 1 ? '' : 's'} into your project.` : 'No automatic fixes were available.');
+      if (r.remainingPrompt) router.push(`/build/${id}?prompt=${encodeURIComponent(r.remainingPrompt)}`);
     } catch (e) {
       setApplied(`Couldn't apply fixes: ${(e as Error).message}`);
     }

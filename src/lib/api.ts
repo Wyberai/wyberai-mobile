@@ -1497,7 +1497,21 @@ export async function removeCollaborator(projectId: string, collaboratorId: stri
 
 // ── SEO checks ───────────────────────────────────────────────────────────────
 export type SeoCheck = { id: string; label: string; status: 'pass' | 'warn' | 'fail'; detail: string };
-export type SeoReport = { score: number; checks: SeoCheck[]; scannedAt: string };
+export type SeoReport = {
+  score: number;
+  checks: SeoCheck[];
+  scannedAt: string;
+  cost?: number;
+  creditsRemaining?: number;
+  fixedFiles?: Record<string, string>;
+  fixedCheckIds?: string[];
+};
+
+/** project_type of one of the signed-in user's projects (drives the Marketing Beast set). */
+export async function loadProjectType(projectId: string): Promise<string | undefined> {
+  const { data } = await supabase.from('projects').select('project_type').eq('id', projectId).maybeSingle();
+  return (data?.project_type as string | undefined) ?? undefined;
+}
 
 export async function runSeoScan(projectId: string): Promise<SeoReport> {
   const token = await accessToken();
@@ -2055,6 +2069,35 @@ export async function importFromFigma(figmaUrl: string, figmaToken?: string): Pr
     method: 'POST',
     body: { figmaUrl, ...(figmaToken ? { figmaToken } : {}) },
   });
+}
+
+/**
+ * Wyberman help chat (web: POST /api/support). A free, unauthenticated,
+ * IP-rate-limited plain-text stream; `onText` receives the full reply so far.
+ */
+export function askSupport(
+  messages: { role: 'user' | 'assistant'; content: string }[],
+  handlers: { onText: (reply: string) => void; onDone: () => void; onError: (message: string) => void },
+): { abort: () => void } {
+  const xhr = new XMLHttpRequest();
+  xhr.open('POST', `${API_BASE}/api/support`);
+  xhr.setRequestHeader('Content-Type', 'application/json');
+  xhr.timeout = 60_000;
+  xhr.onprogress = () => handlers.onText(xhr.responseText);
+  xhr.onload = () => {
+    if (xhr.status === 429) return handlers.onError('Too many questions in a short time. Wait a minute and try again.');
+    if (xhr.status < 200 || xhr.status >= 300) return handlers.onError("Couldn't reach help right now. Try again in a moment.");
+    handlers.onText(xhr.responseText);
+    handlers.onDone();
+  };
+  xhr.onerror = () => handlers.onError("Couldn't reach help right now. Check your connection and try again.");
+  xhr.ontimeout = () => handlers.onError('Help took too long to answer. Try again.');
+  xhr.send(JSON.stringify({ messages }));
+  return {
+    abort: () => {
+      try { xhr.abort(); } catch { /* already finished */ }
+    },
+  };
 }
 
 // ── Supabase connector (manual URL + anon key path of web's SupabaseConnector) ──
