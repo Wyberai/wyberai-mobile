@@ -25,7 +25,7 @@ import { brand, font, radius, space } from '@/lib/theme';
 // Add an integration to the current build from the phone: pick a service, drop
 // in its API key(s) → saved to the vault → the connector's prompt is sent to the
 // builder so the AI wires it in. Mirrors the web ConnectorsPanel (key-based
-// connectors only; Supabase/OAuth deferred). `onRun` hands the prompt to the
+// connectors only; Supabase has its own screen). `onRun` hands the prompt to the
 // builder's existing run().
 export function ConnectorsSheet({
   visible,
